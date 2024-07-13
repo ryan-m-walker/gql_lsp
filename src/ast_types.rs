@@ -68,7 +68,7 @@ pub struct Variable {
 pub struct VariableDefinition {
     pub variable: Variable,
     pub variable_type: Type,
-    // default_value: Option<Value>, TODO
+    pub default_value: Option<Value>, 
     pub position: Range,
 }
 
@@ -97,5 +97,110 @@ pub struct ListType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct NonNullType {
     pub wrapped_type: Box<Type>,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Value {
+    IntValue(IntValue),
+    FloatValue(FloatValue),
+    StringValue(StringValue),
+    BooleanValue(BooleanValue),
+    NullValue(NullValue),
+    EnumValue(EnumValue),
+    ListValue(ListValue),
+    ObjectValue(ObjectValue),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IntValue {
+    pub value: i32,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FloatValue {
+    pub value: f32,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StringValue {
+    pub value: String,
+    pub block: bool,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BooleanValue {
+    pub value: bool,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NullValue {
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumValue {
+    pub value: String,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListValue {
+    pub values: Vec<Value>,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectValue {
+    pub fields: Vec<ObjectField>,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectField {
+    pub name: Name,
+    pub value: Value,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Selection {
+    Field(Field),
+    FragmentSpread(FragmentSpread),
+    InlineFragment(InlineFragment),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Field {
+    pub alias: Option<Name>,
+    pub name: Name,
+    // pub arguments: Vec<Argument>,
+    // pub directives: Vec<Directive>,
+    pub selection_set: Option<SelectionSet>,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FragmentSpread {
+    pub name: Name,
+    // pub directives: Vec<Directive>,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InlineFragment {
+    // pub type_condition: Option<TypeCondition>,
+    // pub directives: Vec<Directive>,
+    pub selection_set: SelectionSet,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SelectionSet {
+    pub selections: Vec<Selection>,
     pub position: Range,
 }

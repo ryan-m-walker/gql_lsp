@@ -13,7 +13,7 @@ mod parser;
 mod tokens;
 
 fn main() {
-    let file = fs::read_to_string("schema.graphql").expect("Unable to read file");
+    let file = fs::read_to_string("test_document.graphql").expect("Unable to read file");
 
     let mut lexer = Lexer::new(file);
     let tokens = lexer.lex();
