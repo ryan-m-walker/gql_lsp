@@ -1,48 +1,39 @@
-use crate::{
-    ast_types::{Definition, Document, Name, OperationDefinition, OperationType, VariableDefinition, Type, ListType, NamedType, NonNullType, Variable, Value, ListValue, ObjectField, ObjectValue, NullValue, BooleanValue, FloatValue, IntValue, StringValue, EnumValue, SelectionSet},
-    helpers::{is_valid_name, to_operation_type},
-    lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range},
-    tokens::{LexicalToken, LexicalTokenType, Punctuator},
+use crate::ast_types::{
+    BooleanValue, Definition, Document, EnumValue, Field, FloatValue, IntValue, ListType,
+    ListValue, Name, NamedType, NonNullType, NullValue, ObjectField, ObjectValue,
+    OperationDefinition, OperationType, Selection, SelectionSet, StringValue, Type, Value,
+    Variable, VariableDefinition, Directive, Argument,
 };
+use crate::helpers::{is_valid_name, to_operation_type};
+use crate::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
+use crate::tokens::{LexicalToken, LexicalTokenType, Punctuator};
 
 #[derive(Debug, Clone)]
 pub struct Parser<'a> {
     tokens: &'a Vec<LexicalToken>,
     ptr: usize,
-    pub diagnostics: Vec<Diagnostic>,
 }
 
 impl<'a> Parser<'_> {
     pub fn new(tokens: &'a Vec<LexicalToken>) -> Parser {
         Parser {
             ptr: 0,
-            tokens,
-            diagnostics: Vec::new(),
+            tokens
         }
     }
 
-    pub fn parse(&mut self) -> Result<Document, Vec<Diagnostic>>{
-        let result = self.parse_document();
-
-        match result {
-            Ok(document) => Ok(document),
-            Err(diagnostic) => {
-                self.diagnostics.push(diagnostic);
-                return Err(self.diagnostics.clone());
-            }
-        }
+    pub fn parse(&mut self) -> Result<Document, Diagnostic> {
+        self.parse_document()
     }
 
     fn parse_document(&mut self) -> Result<Document, Diagnostic> {
         let start_position = self.get_current_position();
-
         let definitions = self.parse_definitions()?;
-
         let end_position = self.get_current_position();
 
         Ok(Document {
             definitions,
-            position: Range::new(start_position.start, end_position.end)
+            position: Range::new(start_position.start, end_position.end),
         })
     }
 
@@ -56,30 +47,29 @@ impl<'a> Parser<'_> {
                 let position = token.position.clone();
 
                 match &token.token_type {
+                    // https://spec.graphql.org/October2021/#sec-Anonymous-Operation-Definitions
+                    LexicalTokenType::Punctuator(Punctuator::LeftBrace) => {
+                        let operation_definition =
+                            self.parse_operation_definition(OperationType::Query)?;
+                        definitions.push(Definition::OperationDefinition(operation_definition));
+                        continue;
+                    }
+
+                    // https://spec.graphql.org/October2021/#sec-Named-Operation-Definitions
                     LexicalTokenType::Name(name) => {
                         if let Some(operation_type) = to_operation_type(name) {
                             self.next();
-
                             let operation_definition =
                                 self.parse_operation_definition(operation_type)?;
-
-                            definitions.push(Definition::OperationDefinition(
-                                operation_definition,
-                            ));
-
+                            definitions.push(Definition::OperationDefinition(operation_definition));
                             continue;
                         }
-
-                        // return Err(Diagnostic::new(
-                        //     DiagnosticSeverity::Error,
-                        //     String::from("Expected definition"),
-                        //     position,
-                        // ));
                     }
+
                     _ => {
                         // return Err(Diagnostic::new(
                         //     DiagnosticSeverity::Error,
-                        //     String::from("Expected operation definition"), // TODO: better error
+                        //     String::from("Expected operation definition"),
                         //     position,
                         // ));
                     }
@@ -100,19 +90,115 @@ impl<'a> Parser<'_> {
 
         let name = self.parse_name()?;
         let variable_definitions = self.parse_variable_definitions()?;
-        // TODO: @directives
+        let directives = self.parse_directives()?;
         let selection_set = self.parse_selection_set()?;
 
         Ok(OperationDefinition {
             name,
             operation: operation_type,
             variable_definitions,
-            position: Range::new(start_position.start, self.get_current_position().end)
+            directives,
+            selection_set,
+            position: Range::new(start_position.start, self.get_current_position().end),
         })
     }
 
+    fn parse_directives(&mut self) -> Result<Vec<Directive>, Diagnostic> {
+        let mut directives: Vec<Directive> = Vec::new();
+
+        loop {
+            if let Some(token) = self.peek() {
+                if token.token_type != LexicalTokenType::Punctuator(Punctuator::AtSign) {
+                    break;
+                }
+
+                let start_position = self.get_current_position().clone();
+
+                self.next();
+
+                let name = self.parse_name()?;
+                let arguments = self.parse_arguments()?;
+
+                directives.push(Directive {
+                    name: name.unwrap(),
+                    arguments,
+                    position: Range::new(start_position.start, self.get_current_position().end),
+                });
+            }
+        }
+
+
+        Ok(directives)
+    }
+
+    fn parse_arguments(&mut self) -> Result<Vec<Argument>, Diagnostic> {
+        let mut arguments: Vec<Argument> = Vec::new();
+
+        if let Some(token) = self.peek() {
+            if token.token_type != LexicalTokenType::Punctuator(Punctuator::LeftParenthesis) {
+                return Ok(arguments);
+            }
+
+            self.next();
+
+            while let Some(token) = self.peek() {
+                if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightParenthesis) {
+                    self.next();
+                    return Ok(arguments);
+                }
+
+                let argument = self.parse_argument()?;
+                arguments.push(argument);
+            }
+        }
+
+        Ok(arguments)
+    }
+
+    fn parse_argument(&mut self) -> Result<Argument, Diagnostic> {
+        let start_position = self.get_current_position().clone();
+
+        let name = self.parse_name()?;
+
+        if name.is_none() {
+            return Err(Diagnostic::new(
+                DiagnosticSeverity::Error,
+                String::from("Expected Name"),
+                start_position,
+            ));
+        }
+
+        let name = name.unwrap();
+
+        if let Some(token) = self.peek() {
+            dbg!(token);
+            if token.token_type != LexicalTokenType::Punctuator(Punctuator::Colon) {
+                return Err(Diagnostic::new(
+                    DiagnosticSeverity::Error,
+                    String::from("Expected \":\""),
+                    token.position.clone(),
+                ));
+            }
+            self.next();
+        }
+
+        let value = self.parse_value()?;
+
+        Ok(Argument {
+            name,
+            value,
+            position: Range::new(start_position.start, self.get_current_position().end),
+        })
+    }
+
+    /// https://spec.graphql.org/October2021/#sec-Selection-Sets
     fn parse_selection_set(&mut self) -> Result<SelectionSet, Diagnostic> {
+        self.current_depth += 1;
+
+        let position = self.get_current_position().clone();
         let token = self.peek();
+
+        let mut selections: Vec<Selection> = Vec::new();
 
         if let Some(token) = token {
             if token.token_type == LexicalTokenType::Punctuator(Punctuator::LeftBrace) {
@@ -120,11 +206,19 @@ impl<'a> Parser<'_> {
 
                 while let Some(token) = self.peek() {
                     if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightBrace) {
+                        self.current_depth -= 1;
                         self.next();
-                        return Ok(());
+
+                        return Ok(SelectionSet {
+                            selections,
+                            position: Range::new(position.start, self.get_current_position().end),
+                        });
                     }
 
-                    self.parse_selection()?;
+
+                    let selection = self.parse_selection()?;
+                    selections.push(selection);
+                    continue;
                 }
             }
         }
@@ -136,21 +230,55 @@ impl<'a> Parser<'_> {
         ))
     }
 
-    fn parse_selection(&mut self) -> Result<(), Diagnostic> {
+    /// https://spec.graphql.org/October2021/#Selection
+    fn parse_selection(&mut self) -> Result<Selection, Diagnostic> {
+        let position = self.get_current_position().clone();
         let token = self.peek();
 
         if let Some(token) = token {
             match &token.token_type {
-                LexicalTokenType::Name(name) => {
-                    if name == "fragment" {
-                        // self.parse_fragment_definition()?;
+                LexicalTokenType::Name(_) => {
+                    let mut name = self.parse_name()?;
+                    let mut alias: Option<Name> = None;
+
+                    if let Some(token) = self.peek() {
+                        if token.token_type == LexicalTokenType::Punctuator(Punctuator::Colon) {
+                            self.next();
+                            alias = name;
+                            name = self.parse_name()?;
+                        }
                     }
+
+                    let arguments = self.parse_arguments()?;
+                    let directives = self.parse_directives()?;
+
+                    let mut selection_set: Option<SelectionSet> = None;
+
+                    if let Some(token) = self.peek() {
+                        if token.token_type == LexicalTokenType::Punctuator(Punctuator::LeftBrace) {
+                            selection_set = Some(self.parse_selection_set()?);
+                        }
+                    }
+
+
+                    return Ok(Selection::Field(Field {
+                        alias,
+                        name: name.unwrap(),
+                        selection_set,
+                        arguments,
+                        directives,
+                        position: Range::new(position.start, self.get_current_position().end),
+                    }));
                 }
                 _ => {}
             }
         }
 
-        Ok(())
+        Err(Diagnostic::new(
+            DiagnosticSeverity::Error,
+            String::from("Expected Selection"),
+            self.get_current_position(),
+        ))
     }
 
     fn parse_name(&mut self) -> Result<Option<Name>, Diagnostic> {
@@ -261,17 +389,11 @@ impl<'a> Parser<'_> {
             return Ok(VariableDefinition {
                 variable: Variable {
                     name,
-                    position: Range::new(
-                        position.start.clone(),
-                        self.get_current_position().end,
-                    ),
+                    position: Range::new(position.start.clone(), self.get_current_position().end),
                 },
                 variable_type,
                 default_value,
-                position: Range::new(
-                    position.start,
-                    self.get_current_position().end,
-                ),
+                position: Range::new(position.start, self.get_current_position().end),
             });
         }
 
@@ -280,10 +402,9 @@ impl<'a> Parser<'_> {
             String::from("Expected Variable Definition"),
             self.get_current_position(),
         ))
-
     }
 
-    fn parse_type(&mut self) -> Result<Type, Diagnostic>{
+    fn parse_type(&mut self) -> Result<Type, Diagnostic> {
         if let Some(token) = self.peek() {
             let start_position = token.position.clone();
 
@@ -297,10 +418,7 @@ impl<'a> Parser<'_> {
             if let Some(name_type) = name_type {
                 return Ok(self.wrap_if_non_null(Type::NamedType(NamedType {
                     name: name_type,
-                    position: Range::new(
-                        start_position.start,
-                        self.get_current_position().end,
-                    ),
+                    position: Range::new(start_position.start, self.get_current_position().end),
                 })));
             }
         }
@@ -323,15 +441,11 @@ impl<'a> Parser<'_> {
             self.next();
         }
 
-
         let end_position = self.get_current_position().clone();
 
         Type::NonNullType(NonNullType {
             wrapped_type: Box::new(wrapped_type),
-            position: Range::new(
-                start_position.start,
-                end_position.end,
-            ),
+            position: Range::new(start_position.start, end_position.end),
         })
     }
 
@@ -357,10 +471,7 @@ impl<'a> Parser<'_> {
 
         Ok(Type::ListType(ListType {
             wrapped_type: Box::new(wrapped_type),
-            position: Range::new(
-                start_position.start,
-                end_position.end,
-            ),
+            position: Range::new(start_position.start, end_position.end),
         }))
     }
 
@@ -372,18 +483,12 @@ impl<'a> Parser<'_> {
                 LexicalTokenType::IntValue(value) => {
                     let value = value.clone();
                     self.next();
-                    return Ok(Value::IntValue(IntValue {
-                        value,
-                        position,
-                    }));
+                    return Ok(Value::IntValue(IntValue { value, position }));
                 }
                 LexicalTokenType::FloatValue(value) => {
                     let value = value.clone();
                     self.next();
-                    return Ok(Value::FloatValue(FloatValue {
-                        value,
-                        position,
-                    }));
+                    return Ok(Value::FloatValue(FloatValue { value, position }));
                 }
                 LexicalTokenType::StringValue(value) => {
                     let value = value.clone();
@@ -410,9 +515,7 @@ impl<'a> Parser<'_> {
                 }
                 LexicalTokenType::Name(name) if name == "null" => {
                     self.next();
-                    return Ok(Value::NullValue(NullValue {
-                        position,
-                    }));
+                    return Ok(Value::NullValue(NullValue { position }));
                 }
                 LexicalTokenType::Punctuator(Punctuator::LeftBracket) => {
                     return Ok(self.parse_list_value()?);
@@ -464,10 +567,7 @@ impl<'a> Parser<'_> {
 
         Ok(Value::ListValue(ListValue {
             values,
-            position: Range::new(
-                start_position.start,
-                end_position.end,
-            ),
+            position: Range::new(start_position.start, end_position.end),
         }))
     }
 
@@ -492,10 +592,7 @@ impl<'a> Parser<'_> {
 
         Ok(Value::ObjectValue(ObjectValue {
             fields: object_fields,
-            position: Range::new(
-                start_position.start,
-                end_position.end,
-            ),
+            position: Range::new(start_position.start, end_position.end),
         }))
     }
 
@@ -529,10 +626,7 @@ impl<'a> Parser<'_> {
         Ok(ObjectField {
             name,
             value,
-            position: Range::new(
-                start_position.start,
-                self.get_current_position().end,
-            ),
+            position: Range::new(start_position.start, self.get_current_position().end),
         })
     }
 
@@ -549,9 +643,6 @@ impl<'a> Parser<'_> {
             return token.position.clone();
         }
 
-        Range::new(
-            Position::new(0, 0),
-            Position::new(0, 0),
-        )
+        Range::new(Position::new(0, 0), Position::new(0, 0))
     }
 }

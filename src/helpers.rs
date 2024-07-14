@@ -36,4 +36,3 @@ pub fn is_valid_name(value: &String) -> bool {
 
     true
 }
-

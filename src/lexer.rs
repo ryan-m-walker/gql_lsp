@@ -73,7 +73,7 @@ impl Lexer {
                         Range::new(
                             Position::new(line, character),
                             Position::new(self.line, self.character),
-                        ),
+                        )
                     ));
                 }
 
@@ -90,7 +90,7 @@ impl Lexer {
                             Range::new(
                                 Position::new(line, character),
                                 Position::new(self.line, self.character),
-                            ),
+                            )
                         ));
                     } else if c.is_ascii_alphabetic() || c == '_' {
                         let value = self.consume_while(|c| c.is_ascii_alphanumeric() || c == '_');
@@ -100,7 +100,7 @@ impl Lexer {
                             Range::new(
                                 Position::new(line, character),
                                 Position::new(self.line, self.character),
-                            ),
+                            )
                         ));
                     } else {
                         panic!("Unexpected character: '{}'", c);
@@ -114,7 +114,7 @@ impl Lexer {
             Range::new(
                 Position::new(self.line, self.character),
                 Position::new(self.line, self.character),
-            ),
+            )
         ));
 
         tokens
@@ -157,9 +157,11 @@ impl Lexer {
         F: Fn(char) -> bool,
     {
         while let Some(c) = self.peek() {
+
             if condition(c) {
                 self.next();
             } else {
+
                 break;
             }
 
@@ -181,10 +183,7 @@ mod tests {
         let tokens = Lexer::new(source).lex();
         let token = tokens.first().unwrap();
 
-        assert_eq!(
-            token.token_type,
-            LexicalTokenType::StringValue(String::from("Hello, World!"))
-        );
+        assert_eq!(token.token_type, LexicalTokenType::StringValue(String::from("Hello, World!")));
         assert_eq!(token.position.start.line, 0);
         assert_eq!(token.position.start.character, 0);
 

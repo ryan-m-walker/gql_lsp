@@ -34,9 +34,8 @@ pub struct OperationDefinition {
     pub name: Option<Name>,
     pub operation: OperationType,
     pub variable_definitions: Vec<VariableDefinition>,
-
-    // pub directives: Option<i8>,           // TODO
-    // pub selection_set: i8,                // TODO
+    pub selection_set: SelectionSet,
+    pub directives: Vec<Directive>,
     pub position: Range,
 }
 
@@ -68,7 +67,7 @@ pub struct Variable {
 pub struct VariableDefinition {
     pub variable: Variable,
     pub variable_type: Type,
-    pub default_value: Option<Value>, 
+    pub default_value: Option<Value>,
     pub position: Range,
 }
 
@@ -178,8 +177,8 @@ pub enum Selection {
 pub struct Field {
     pub alias: Option<Name>,
     pub name: Name,
-    // pub arguments: Vec<Argument>,
-    // pub directives: Vec<Directive>,
+    pub arguments: Vec<Argument>,
+    pub directives: Vec<Directive>,
     pub selection_set: Option<SelectionSet>,
     pub position: Range,
 }
@@ -202,5 +201,19 @@ pub struct InlineFragment {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SelectionSet {
     pub selections: Vec<Selection>,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Directive {
+    pub name: Name,
+    pub position: Range,
+    pub arguments: Vec<Argument>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Argument {
+    pub name: Name,
+    pub value: Value,
     pub position: Range,
 }
