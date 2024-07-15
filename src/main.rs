@@ -1,7 +1,4 @@
-use std::{
-    fs::{self, File},
-    process::Stdio,
-};
+use std::fs;
 
 use parser::parse;
 
