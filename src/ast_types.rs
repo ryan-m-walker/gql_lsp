@@ -23,7 +23,7 @@ pub enum Definition {
 
 // #[derive(Debug, Clone, PartialEq)]
 // pub enum TypeSystemDefinitionOrExtension {
-    //
+//
 // }
 
 // #[derive(Debug, Clone, PartialEq)]

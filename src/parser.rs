@@ -1,8 +1,8 @@
 use crate::ast_types::{
     Argument, BooleanValue, Definition, Directive, Document, EnumValue, Field, FloatValue,
-    IntValue, ListType, ListValue, Name, NamedType, NonNullType, NullValue, ObjectField,
-    ObjectValue, OperationDefinition, OperationType, Selection, SelectionSet, StringValue, Type,
-    Value, Variable, VariableDefinition, FragmentSpread, InlineFragment, FragmentDefinition,
+    FragmentDefinition, FragmentSpread, InlineFragment, IntValue, ListType, ListValue, Name,
+    NamedType, NonNullType, NullValue, ObjectField, ObjectValue, OperationDefinition,
+    OperationType, Selection, SelectionSet, StringValue, Type, Value, Variable, VariableDefinition,
 };
 use crate::helpers::{is_valid_name, to_operation_type};
 use crate::lexer::lex;
@@ -87,7 +87,6 @@ impl Parser {
                     ));
                 }
             };
-            
 
             self.next();
         }
@@ -97,19 +96,9 @@ impl Parser {
 
     fn parse_type_condition(&mut self) -> Result<NamedType, Diagnostic> {
         let start_position = self.get_current_position();
- 
-        if let Some(token) = self.peek() {
-            if token.token_type != LexicalTokenType::Name(String::from("on")) {
-                return Err(Diagnostic::new(
-                    DiagnosticSeverity::Error,
-                    String::from("Expected \"on\""),
-                    token.position.clone(),
-                ));
-            }
 
-            self.next();
-        }
-
+        self.expect_token(LexicalTokenType::Name(String::from("on")))?;
+        self.next();
         let name = self.parse_name()?;
 
         Ok(NamedType {
@@ -161,25 +150,21 @@ impl Parser {
     fn parse_directives(&mut self) -> Result<Vec<Directive>, Diagnostic> {
         let mut directives: Vec<Directive> = Vec::new();
 
-        loop {
-            if let Some(token) = self.peek() {
-                if token.token_type != LexicalTokenType::Punctuator(Punctuator::AtSign) {
-                    break;
-                }
+        while let Some(LexicalTokenType::Punctuator(Punctuator::AtSign)) =
+            self.peek().map(|t| &t.token_type)
+        {
+            let start_position = self.get_current_position().clone();
 
-                let start_position = self.get_current_position().clone();
+            self.next();
 
-                self.next();
+            let name = self.parse_name()?;
+            let arguments = self.parse_arguments()?;
 
-                let name = self.parse_name_maybe()?;
-                let arguments = self.parse_arguments()?;
-
-                directives.push(Directive {
-                    name: name.unwrap(),
-                    arguments,
-                    position: Range::new(start_position.start, self.get_current_position().end),
-                });
-            }
+            directives.push(Directive {
+                name,
+                arguments,
+                position: Range::new(start_position.start, self.get_current_position().end),
+            });
         }
 
         Ok(directives)
@@ -231,31 +216,23 @@ impl Parser {
 
         let mut selections: Vec<Selection> = Vec::new();
 
-        if let Some(token) = token {
-            match &token.token_type {
-                LexicalTokenType::Punctuator(Punctuator::LeftBrace) => {
+        if let Some(LexicalTokenType::Punctuator(Punctuator::LeftBrace)) =
+            token.map(|t| &t.token_type)
+        {
+            self.next();
+
+            while let Some(token) = self.peek() {
+                if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightBrace) {
                     self.next();
 
-                    while let Some(token) = self.peek() {
-                        if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightBrace)
-                        {
-                            self.next();
-
-                            return Ok(SelectionSet {
-                                selections,
-                                position: Range::new(
-                                    position.start,
-                                    self.get_current_position().end,
-                                ),
-                            });
-                        }
-
-                        let selection = self.parse_selection()?;
-                        selections.push(selection);
-                        continue;
-                    }
+                    return Ok(SelectionSet {
+                        selections,
+                        position: Range::new(position.start, self.get_current_position().end),
+                    });
                 }
-                _ => {}
+
+                selections.push(self.parse_selection()?);
+                continue;
             }
         }
 
@@ -315,10 +292,14 @@ impl Parser {
                     if let Some(token) = self.peek() {
                         match &token.token_type {
                             LexicalTokenType::Name(name) if name == "on" => {
-                                return Ok(Selection::InlineFragment(self.parse_inline_fragment()?));
+                                return Ok(Selection::InlineFragment(
+                                    self.parse_inline_fragment()?,
+                                ));
                             }
                             LexicalTokenType::Name(_) => {
-                                return Ok(Selection::FragmentSpread(self.parse_fragment_spread()?));
+                                return Ok(Selection::FragmentSpread(
+                                    self.parse_fragment_spread()?,
+                                ));
                             }
                             _ => {
                                 return Err(Diagnostic::new(
@@ -982,7 +963,10 @@ mod tests {
 
                 match inline_fragment {
                     Selection::InlineFragment(inline_fragment) => {
-                        assert_eq!(inline_fragment.type_condition.as_ref().unwrap().name.value, "User");
+                        assert_eq!(
+                            inline_fragment.type_condition.as_ref().unwrap().name.value,
+                            "User"
+                        );
                         assert_eq!(inline_fragment.directives.len(), 0);
                         assert_eq!(inline_fragment.selection_set.selections.len(), 2);
                     }
