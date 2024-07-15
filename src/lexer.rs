@@ -37,9 +37,9 @@ impl Lexer {
                 }
 
                 NEW_LINE | CARRIAGE_RETURN => {
-                    self.character = 0;
                     self.line += 1;
                     self.next();
+                    self.character = 0;
                 }
 
                 // Comments

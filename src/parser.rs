@@ -11,6 +11,7 @@ use crate::tokens::{LexicalToken, LexicalTokenType, Punctuator};
 
 pub fn parse(source: String) -> Result<Document, Diagnostic> {
     let tokens = lex(source)?;
+    dbg!(&tokens);
     let mut parser = Parser::new(tokens);
     parser.parse()
 }
@@ -307,6 +308,7 @@ impl Parser {
         if let Some(token) = token {
             match &token.token_type {
                 LexicalTokenType::Punctuator(Punctuator::Ellipsis) => {
+                    // TODO: start position needs to account for the `...`
                     self.next();
 
                     if let Some(token) = self.peek() {
