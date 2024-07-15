@@ -46,7 +46,7 @@ pub struct OperationDefinition {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FragmentDefinition {
     pub name: Name,
-    pub type_condition: Name, // TODO: Implement TypeCondition
+    pub type_condition: NamedType,
     pub directives: Vec<Directive>,
     pub selection_set: SelectionSet,
     pub position: Range,
@@ -201,7 +201,7 @@ pub struct FragmentSpread {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineFragment {
-    pub type_condition: Option<Name>,
+    pub type_condition: Option<NamedType>,
     pub directives: Vec<Directive>,
     pub selection_set: SelectionSet,
     pub position: Range,

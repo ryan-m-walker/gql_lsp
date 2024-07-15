@@ -93,10 +93,8 @@ impl Parser {
         Ok(definitions)
     }
 
-    fn parse_fragment_definition(&mut self) -> Result<FragmentDefinition, Diagnostic> {
+    fn parse_type_condition(&mut self) -> Result<NamedType, Diagnostic> {
         let start_position = self.get_current_position();
-
-        let name = self.parse_name()?;
 
         if let Some(token) = self.peek() {
             if token.token_type != LexicalTokenType::Name(String::from("on")) {
@@ -110,7 +108,19 @@ impl Parser {
             self.next();
         }
 
-        let type_condition = self.parse_name()?;
+        let name = self.parse_name()?;
+
+        Ok(NamedType {
+            name,
+            position: Range::new(start_position.start, self.get_current_position().end),
+        })
+    }
+
+    fn parse_fragment_definition(&mut self) -> Result<FragmentDefinition, Diagnostic> {
+        let start_position = self.get_current_position();
+
+        let name = self.parse_name()?;
+        let type_condition = self.parse_type_condition()?;
         let directives = self.parse_directives()?;
         let selection_set = self.parse_selection_set()?;
 
@@ -274,6 +284,41 @@ impl Parser {
         ))
     }
 
+    fn parse_fragment_spread(&mut self) -> Result<FragmentSpread, Diagnostic> {
+        let position = self.get_current_position().clone();
+
+        let name = self.parse_name()?;
+        let directives = self.parse_directives()?;
+
+        Ok(FragmentSpread {
+            name,
+            directives,
+            position: Range::new(position.start, self.get_current_position().end),
+        })
+    }
+
+    fn parse_inline_fragment(&mut self) -> Result<InlineFragment, Diagnostic> {
+        let position = self.get_current_position().clone();
+
+        let mut type_condition: Option<NamedType> = None;
+
+        if let Some(token) = self.peek() {
+            if token.token_type == LexicalTokenType::Name(String::from("on")) {
+                type_condition = Some(self.parse_type_condition()?);
+            }
+        }
+
+        let directives = self.parse_directives()?;
+        let selection_set = self.parse_selection_set()?;
+
+        Ok(InlineFragment {
+            type_condition,
+            directives,
+            selection_set,
+            position: Range::new(position.start, self.get_current_position().end),
+        })
+    }
+
     /// https://spec.graphql.org/October2021/#Selection
     fn parse_selection(&mut self) -> Result<Selection, Diagnostic> {
         let position = self.get_current_position().clone();
@@ -283,43 +328,24 @@ impl Parser {
             match &token.token_type {
                 LexicalTokenType::Punctuator(Punctuator::Ellipsis) => {
                     self.next();
-                    let name = self.parse_name_maybe()?;
 
-                    if let Some(name) = name {
-                        if name.value == "on" {
-                            self.next();
-
-                            // TODO: make an actual NamedType type
-                            let type_condition = self.parse_name_maybe()?;
-                            let directives = self.parse_directives()?;
-                            let selection_set = self.parse_selection_set()?;
-
-                            return Ok(Selection::InlineFragment(InlineFragment {
-                                type_condition,
-                                directives,
-                                selection_set,
-                                position: Range::new(position.start, self.get_current_position().end),
-                            }));
+                    if let Some(token) = self.peek() {
+                        match &token.token_type {
+                            LexicalTokenType::Name(name) if name == "on" => {
+                                return Ok(Selection::InlineFragment(self.parse_inline_fragment()?));
+                            }
+                            LexicalTokenType::Name(_) => {
+                                return Ok(Selection::FragmentSpread(self.parse_fragment_spread()?));
+                            }
+                            _ => {
+                                return Err(Diagnostic::new(
+                                    DiagnosticSeverity::Error,
+                                    String::from("Expected Fragment Spread or Inline Fragment"),
+                                    self.get_current_position(),
+                                ));
+                            }
                         }
-
-                        let directives = self.parse_directives()?;
-
-                        return Ok(Selection::FragmentSpread(FragmentSpread {
-                            name,
-                            directives,
-                            position: Range::new(position.start, self.get_current_position().end),
-                        }));
                     }
-
-                    let directives = self.parse_directives()?;
-                    let selection_set = self.parse_selection_set()?;
-
-                    return Ok(Selection::InlineFragment(InlineFragment {
-                        type_condition: None,
-                        directives,
-                        selection_set,
-                        position: Range::new(position.start, self.get_current_position().end),
-                    }));
                 }
                 LexicalTokenType::Name(_) => {
                     let mut name = self.parse_name_maybe()?;
@@ -908,11 +934,79 @@ mod tests {
         match document.definitions.get(0) {
             Some(Definition::FragmentDefinition(fragment_definition)) => {
                 assert_eq!(fragment_definition.name.value, "UserFields");
-                assert_eq!(fragment_definition.type_condition.value, "User");
+                assert_eq!(fragment_definition.type_condition.name.value, "User");
                 assert_eq!(fragment_definition.directives.len(), 0);
                 assert_eq!(fragment_definition.selection_set.selections.len(), 4);
             }
             _ => panic!("Expected FragmentDefinition"),
+        }
+    }
+
+    #[test]
+    fn it_can_parse_fragment_spreads() {
+        let source = r#"
+            {
+                ...TestFields
+                ...TestDirective @test
+            }"#;
+
+        let document = parse(source.to_string()).unwrap();
+
+        dbg!(&document);
+
+        match document.definitions.get(0) {
+            Some(Definition::OperationDefinition(operation_definition)) => {
+                let selection_set = &operation_definition.selection_set.selections;
+                let fragment_spread_1 = selection_set.get(0).unwrap();
+                let fragment_spread_2 = selection_set.get(1).unwrap();
+
+                match fragment_spread_1 {
+                    Selection::FragmentSpread(fragment_spread) => {
+                        assert_eq!(fragment_spread.name.value, "TestFields");
+                        assert_eq!(fragment_spread.directives.len(), 0);
+                    }
+                    _ => panic!("Expected FragmentSpread"),
+                }
+
+                match fragment_spread_2 {
+                    Selection::FragmentSpread(fragment_spread) => {
+                        assert_eq!(fragment_spread.name.value, "TestDirective");
+                        assert_eq!(fragment_spread.directives.len(), 1);
+                    }
+                    _ => panic!("Expected FragmentSpread"),
+                }
+            }
+            _ => panic!("Expected OperationDefinition"),
+        }
+    }
+
+    #[test]
+    fn it_can_parse_inline_fragments() {
+        let source = r#"
+            {
+                ... on User {
+                    id
+                    name
+                }
+            }"#;
+
+        let document = parse(source.to_string()).unwrap();
+
+        match document.definitions.get(0) {
+            Some(Definition::OperationDefinition(operation_definition)) => {
+                let selection_set = &operation_definition.selection_set.selections;
+                let inline_fragment = selection_set.get(0).unwrap();
+
+                match inline_fragment {
+                    Selection::InlineFragment(inline_fragment) => {
+                        assert_eq!(inline_fragment.type_condition.as_ref().unwrap().name.value, "User");
+                        assert_eq!(inline_fragment.directives.len(), 0);
+                        assert_eq!(inline_fragment.selection_set.selections.len(), 2);
+                    }
+                    _ => panic!("Expected InlineFragment"),
+                }
+            }
+            _ => panic!("Expected OperationDefinition"),
         }
     }
 }
