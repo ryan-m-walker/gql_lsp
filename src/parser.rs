@@ -5,17 +5,24 @@ use crate::ast_types::{
     Variable, VariableDefinition, Directive, Argument,
 };
 use crate::helpers::{is_valid_name, to_operation_type};
+use crate::lexer::lex;
 use crate::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
 use crate::tokens::{LexicalToken, LexicalTokenType, Punctuator};
 
+pub fn parse(source: String) -> Result<Document, Diagnostic> {
+    let tokens = lex(source)?;
+    let mut parser = Parser::new(tokens);
+    parser.parse()
+}
+
 #[derive(Debug, Clone)]
-pub struct Parser<'a> {
-    tokens: &'a Vec<LexicalToken>,
+struct Parser {
+    tokens: Vec<LexicalToken>,
     ptr: usize,
 }
 
-impl<'a> Parser<'_> {
-    pub fn new(tokens: &'a Vec<LexicalToken>) -> Parser {
+impl Parser {
+    pub fn new(tokens: Vec<LexicalToken>) -> Parser {
         Parser {
             ptr: 0,
             tokens
@@ -193,7 +200,6 @@ impl<'a> Parser<'_> {
 
     /// https://spec.graphql.org/October2021/#sec-Selection-Sets
     fn parse_selection_set(&mut self) -> Result<SelectionSet, Diagnostic> {
-        self.current_depth += 1;
 
         let position = self.get_current_position().clone();
         let token = self.peek();
@@ -206,7 +212,6 @@ impl<'a> Parser<'_> {
 
                 while let Some(token) = self.peek() {
                     if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightBrace) {
-                        self.current_depth -= 1;
                         self.next();
 
                         return Ok(SelectionSet {
