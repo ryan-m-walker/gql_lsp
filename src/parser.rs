@@ -369,29 +369,23 @@ impl Parser {
 
     fn parse_name_maybe(&mut self) -> Result<Option<Name>, Diagnostic> {
         let token = self.peek().cloned();
+        let position = self.get_current_position();
 
-        if let Some(token) = token {
-            match &token.token_type {
-                LexicalTokenType::Name(name) => {
-                    let position = token.position.clone();
+        if let Some(LexicalTokenType::Name(name)) = token.map(|t| t.token_type) {
+            if is_valid_name(&name) {
+                self.next();
 
-                    if is_valid_name(name) {
-                        self.next();
-
-                        return Ok(Some(Name {
-                            value: name.clone(),
-                            position,
-                        }));
-                    }
-
-                    return Err(Diagnostic::new(
-                        DiagnosticSeverity::Error,
-                        String::from("Invalid name"),
-                        position,
-                    ));
-                }
-                _ => return Ok(None),
+                return Ok(Some(Name {
+                    value: name.clone(),
+                    position,
+                }));
             }
+
+            return Err(Diagnostic::new(
+                DiagnosticSeverity::Error,
+                String::from("Invalid name"),
+                position,
+            ));
         }
 
         Ok(None)
