@@ -773,3 +773,146 @@ impl Parser {
         Range::new(Position::new(0, 0), Position::new(0, 0))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_parses_unnamed_queries() {
+        let source = r#"
+            query {
+                test
+            }"#;
+
+        let document = parse(source.to_string()).unwrap();
+
+        match document.definitions.get(0) {
+            Some(Definition::OperationDefinition(operation_definition)) => {
+                assert_eq!(operation_definition.operation, OperationType::Query);
+                assert_eq!(operation_definition.name, None);
+                assert_eq!(operation_definition.variable_definitions.len(), 0);
+                assert_eq!(operation_definition.directives.len(), 0);
+                assert_eq!(operation_definition.anonymous, false);
+                assert_eq!(operation_definition.selection_set.selections.len(), 1);
+            }
+            _ => panic!("Expected OperationDefinition"),
+        }
+    }
+
+    #[test]
+    fn it_parses_named_queries() {
+        let source = r#"
+            query Test {
+                test
+            }"#;
+
+        let document = parse(source.to_string()).unwrap();
+
+        match document.definitions.get(0) {
+            Some(Definition::OperationDefinition(operation_definition)) => {
+                if let Some(name) = &operation_definition.name {
+                    assert_eq!(name.value, "Test");
+                } else {
+                    panic!("Expected name");
+                }
+            }
+            _ => panic!("Expected OperationDefinition"),
+        }
+    }
+
+    #[test]
+    fn it_parses_anonymous_queries() {
+        let source = r#"
+            {
+                test
+            }"#;
+
+        let document = parse(source.to_string()).unwrap();
+
+        match document.definitions.get(0) {
+            Some(Definition::OperationDefinition(operation_definition)) => {
+                assert_eq!(operation_definition.operation, OperationType::Query);
+                assert_eq!(operation_definition.name, None);
+                assert_eq!(operation_definition.anonymous, true);
+            }
+            _ => panic!("Expected OperationDefinition"),
+        }
+    }
+
+    #[test]
+    fn it_parses_queries_with_variables() {
+        let source = r#"
+            query Test($id: ID!, $name: String) {
+                test(id: $id, name: $name)
+            }"#;
+
+        let document = parse(source.to_string()).unwrap();
+
+        match document.definitions.get(0) {
+            Some(Definition::OperationDefinition(operation_definition)) => {
+                assert_eq!(operation_definition.variable_definitions.len(), 2);
+
+                let var_1 = operation_definition.variable_definitions.get(0).unwrap();
+                assert_eq!(var_1.variable.name.value, "id");
+                // TODO assert values
+
+                let var_2 = operation_definition.variable_definitions.get(1).unwrap();
+                assert_eq!(var_2.variable.name.value, "name");
+                // TODO assert values
+            }
+            _ => panic!("Expected OperationDefinition"),
+        }
+    }
+
+    #[test]
+    fn it_successfully_parses_a_complex_query() {
+        let source = r#"
+            query Test($id: ID!, $name: String) @foo @bar(param: "value") {
+                test(id: $id, name: $name) {
+                    id
+                    name
+                    age
+                    friends {
+                        id
+                        name
+                    }
+
+                    ... on User {
+                        email
+                    }
+
+                    ... UserFields @test_directive
+                }
+            }"#;
+
+        let document = parse(source.to_string());
+        assert!(document.is_ok());
+    }
+
+    #[test]
+    fn it_parses_fragment_definitions() {
+        let source = r#"
+            fragment UserFields on User {
+                id
+                name
+                age
+                friends {
+                    id
+                    name
+                }
+            }"#;
+
+        let document = parse(source.to_string()).unwrap();
+
+        match document.definitions.get(0) {
+            Some(Definition::FragmentDefinition(fragment_definition)) => {
+                assert_eq!(fragment_definition.name.value, "UserFields");
+                assert_eq!(fragment_definition.type_condition.value, "User");
+                assert_eq!(fragment_definition.directives.len(), 0);
+                assert_eq!(fragment_definition.selection_set.selections.len(), 4);
+            }
+            _ => panic!("Expected FragmentDefinition"),
+        }
+    }
+}
