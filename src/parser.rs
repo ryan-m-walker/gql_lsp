@@ -95,7 +95,7 @@ impl Parser {
 
     fn parse_type_condition(&mut self) -> Result<NamedType, Diagnostic> {
         let start_position = self.get_current_position();
-
+ 
         if let Some(token) = self.peek() {
             if token.token_type != LexicalTokenType::Name(String::from("on")) {
                 return Err(Diagnostic::new(
@@ -210,29 +210,9 @@ impl Parser {
     fn parse_argument(&mut self) -> Result<Argument, Diagnostic> {
         let start_position = self.get_current_position().clone();
 
-        let name = self.parse_name_maybe()?;
-
-        if name.is_none() {
-            return Err(Diagnostic::new(
-                DiagnosticSeverity::Error,
-                String::from("Expected Name"),
-                start_position,
-            ));
-        }
-
-        let name = name.unwrap();
-
-        if let Some(token) = self.peek() {
-            if token.token_type != LexicalTokenType::Punctuator(Punctuator::Colon) {
-                return Err(Diagnostic::new(
-                    DiagnosticSeverity::Error,
-                    String::from("Expected \":\""),
-                    token.position.clone(),
-                ));
-            }
-            self.next();
-        }
-
+        let name = self.parse_name()?;
+        self.expect_token(LexicalTokenType::Punctuator(Punctuator::Colon))?;
+        self.next();
         let value = self.parse_value()?;
 
         Ok(Argument {
@@ -775,6 +755,20 @@ impl Parser {
 
     fn next(&mut self) {
         self.ptr += 1;
+    }
+
+    fn expect_token(&mut self, token_type: LexicalTokenType) -> Result<bool, Diagnostic> {
+        if let Some(token) = self.peek() {
+            if token.token_type == token_type {
+                return Ok(true);
+            }
+        }
+
+        Err(Diagnostic::new(
+            DiagnosticSeverity::Error,
+            String::from("Unexpected token"),
+            self.get_current_position(),
+        ))
     }
 
     fn get_current_position(&self) -> Range {
