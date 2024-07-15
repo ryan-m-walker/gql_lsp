@@ -1,6 +1,6 @@
 use crate::constants::{BOM, CARRIAGE_RETURN, NEW_LINE, SPACE, TAB};
 use crate::helpers::is_line_terminator;
-use crate::lsp_types::{Position, Range, Diagnostic, DiagnosticSeverity};
+use crate::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
 use crate::tokens::{char_to_punctuator, LexicalToken, LexicalTokenType, Punctuator};
 
 pub fn lex(source: String) -> Result<Vec<LexicalToken>, Diagnostic> {
@@ -48,8 +48,7 @@ impl Lexer {
 
                 // Punctuators
                 // https://spec.graphql.org/October2021/#sec-Punctuators
-                '!' | '$' | '&' | '(' | ')' | ':' | '=' | '@' | '[' | ']' | '{' | '}'
-                | '|' => {
+                '!' | '$' | '&' | '(' | ')' | ':' | '=' | '@' | '[' | ']' | '{' | '}' | '|' => {
                     let punctuator = char_to_punctuator(c);
                     let character = self.character;
 
@@ -74,10 +73,7 @@ impl Lexer {
 
                     tokens.push(LexicalToken::new(
                         LexicalTokenType::Punctuator(Punctuator::Ellipsis),
-                        Range::new(
-                            start_position,
-                            Position::new(self.line, self.character),
-                        ),
+                        Range::new(start_position, Position::new(self.line, self.character)),
                     ));
                 }
                 '"' => {
@@ -93,10 +89,10 @@ impl Lexer {
                         Range::new(
                             Position::new(line, character),
                             Position::new(self.line, self.character),
-                        )
+                        ),
                     ));
                 }
-                
+
                 '-' => {
                     tokens.push(self.tokenize_number()?);
                 }
@@ -116,7 +112,7 @@ impl Lexer {
                             Range::new(
                                 Position::new(line, character),
                                 Position::new(self.line, self.character),
-                            )
+                            ),
                         ));
                     } else {
                         return Err(Diagnostic::new(
@@ -125,7 +121,7 @@ impl Lexer {
                             Range::new(
                                 Position::new(line, character),
                                 Position::new(self.line, self.character),
-                            )
+                            ),
                         ));
                     }
                 }
@@ -137,20 +133,20 @@ impl Lexer {
             Range::new(
                 Position::new(self.line, self.character),
                 Position::new(self.line, self.character),
-            )
+            ),
         ));
 
         Ok(tokens)
     }
 
-    fn tokenize_number(&mut self) -> Result<LexicalToken, Diagnostic>{
+    fn tokenize_number(&mut self) -> Result<LexicalToken, Diagnostic> {
         let sign = if let Some('-') = self.peek() {
             self.next();
             "-"
         } else {
             ""
         };
- 
+
         let number_value = self.consume_while(|c| c.is_ascii_digit());
 
         if number_value.is_empty() {
@@ -181,7 +177,6 @@ impl Lexer {
                 ));
             }
 
-
             let parsed_float = format!("{}{}.{}", sign, number_value, decimal_value).parse::<f32>();
 
             match parsed_float {
@@ -190,8 +185,11 @@ impl Lexer {
                         LexicalTokenType::FloatValue(value),
                         Range::new(
                             Position::new(self.line, self.character),
-                            Position::new(self.line, self.character + number_value.len() + decimal_value.len()),
-                        )
+                            Position::new(
+                                self.line,
+                                self.character + number_value.len() + decimal_value.len(),
+                            ),
+                        ),
                     ));
                 }
                 Err(_) => {
@@ -216,7 +214,7 @@ impl Lexer {
                     Range::new(
                         Position::new(self.line, self.character),
                         Position::new(self.line, self.character + number_value.len()),
-                    )
+                    ),
                 ));
             }
             Err(_) => {
@@ -235,9 +233,9 @@ impl Lexer {
     fn peek(&self) -> Option<char> {
         self.source.chars().nth(self.ptr)
     }
-    
+
     fn expect_peek(&self, expected: char) -> Result<char, Diagnostic> {
-        let next = self.peek(); 
+        let next = self.peek();
 
         match next {
             Some(c) if c == expected => Ok(c),
@@ -255,7 +253,7 @@ impl Lexer {
                 Range::new(
                     Position::new(self.line, self.character),
                     Position::new(self.line, self.character + 1),
-                )
+                ),
             )),
         }
     }
@@ -293,11 +291,9 @@ impl Lexer {
         F: Fn(char) -> bool,
     {
         while let Some(c) = self.peek() {
-
             if condition(c) {
                 self.next();
             } else {
-
                 break;
             }
 
@@ -318,15 +314,21 @@ mod tests {
         let source = String::from("\"Hello, World!\"");
         let tokens = lex(source).unwrap();
         let token = tokens.first().unwrap();
-        assert_eq!(token.token_type, LexicalTokenType::StringValue(String::from("Hello, World!")));
+        assert_eq!(
+            token.token_type,
+            LexicalTokenType::StringValue(String::from("Hello, World!"))
+        );
     }
-    
+
     #[test]
     fn it_tokenizes_ellipsis() {
         let source = String::from("...");
         let tokens = lex(source).unwrap();
         let token = tokens.first().unwrap();
-        assert_eq!(token.token_type, LexicalTokenType::Punctuator(Punctuator::Ellipsis));
+        assert_eq!(
+            token.token_type,
+            LexicalTokenType::Punctuator(Punctuator::Ellipsis)
+        );
     }
 
     #[test]
@@ -350,19 +352,16 @@ mod tests {
 
     #[test]
     fn it_tokenizes_valid_int_values() {
-        let valid_int_values = vec![
-            "0",
-            "123",
-            "1234567890",
-            "-123",
-            "-1234567890",
-        ];
+        let valid_int_values = vec!["0", "123", "1234567890", "-123", "-1234567890"];
 
         for value in valid_int_values {
             let source = String::from(value);
             let tokens = lex(source).unwrap();
             let token = tokens.first().unwrap();
-            assert_eq!(token.token_type, LexicalTokenType::IntValue(value.parse().unwrap()));
+            assert_eq!(
+                token.token_type,
+                LexicalTokenType::IntValue(value.parse().unwrap())
+            );
         }
     }
 
@@ -382,7 +381,10 @@ mod tests {
             let source = String::from(value);
             let tokens = lex(source).unwrap();
             let token = tokens.first().unwrap();
-            assert_eq!(token.token_type, LexicalTokenType::FloatValue(value.parse().unwrap()));
+            assert_eq!(
+                token.token_type,
+                LexicalTokenType::FloatValue(value.parse().unwrap())
+            );
         }
     }
 
@@ -390,9 +392,7 @@ mod tests {
     fn it_does_not_tokenize_invalid_number_values() {
         let invalid_int_values = vec![
             // "01", // TODO
-            "-",
-            ".0",
-            ".0",
+            "-", ".0", ".0",
         ];
 
         for value in invalid_int_values {

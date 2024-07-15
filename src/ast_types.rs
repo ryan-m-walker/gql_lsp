@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::lsp_types::{Position, Range};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -37,6 +39,7 @@ pub struct OperationDefinition {
     pub selection_set: SelectionSet,
     pub directives: Vec<Directive>,
     pub position: Range,
+    pub anonymous: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -101,6 +104,7 @@ pub struct NonNullType {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
+    Variable(Variable),
     IntValue(IntValue),
     FloatValue(FloatValue),
     StringValue(StringValue),
@@ -186,14 +190,14 @@ pub struct Field {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FragmentSpread {
     pub name: Name,
-    // pub directives: Vec<Directive>,
+    pub directives: Vec<Directive>,
     pub position: Range,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineFragment {
-    // pub type_condition: Option<TypeCondition>,
-    // pub directives: Vec<Directive>,
+    pub type_condition: Option<Name>,
+    pub directives: Vec<Directive>,
     pub selection_set: SelectionSet,
     pub position: Range,
 }
