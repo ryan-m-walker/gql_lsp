@@ -1,3 +1,13 @@
-{
-    ... Foo @test
+mutation ($id: ID!) {
+    user(id: $id) {
+        id
+        name
+        ... UserFields
+    }
 }
+
+fragment UserFields on User {
+    email
+    age
+}
+

@@ -11,25 +11,26 @@ pub struct Document {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Definition {
     OperationDefinition(OperationDefinition),
-    TypeSystemDefinitionOrExtension(TypeSystemDefinitionOrExtension),
+    FragmentDefinition(FragmentDefinition),
+    // TypeSystemDefinitionOrExtension(TypeSystemDefinitionOrExtension),
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ExecutableDefinition {
-    OperationDefinition,
-    FragmentDefinition,
-}
+// #[derive(Debug, Clone, PartialEq)]
+// pub enum ExecutableDefinition {
+//     OperationDefinition,
+//     FragmentDefinition,
+// }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum TypeSystemDefinitionOrExtension {
+// #[derive(Debug, Clone, PartialEq)]
+// pub enum TypeSystemDefinitionOrExtension {
     //
-}
+// }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ExecutableDocument {
-    definitions: Vec<ExecutableDefinition>,
-    position: Position,
-}
+// #[derive(Debug, Clone, PartialEq)]
+// pub struct ExecutableDocument {
+//     definitions: Vec<ExecutableDefinition>,
+//     position: Position,
+// }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct OperationDefinition {
@@ -44,7 +45,11 @@ pub struct OperationDefinition {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FragmentDefinition {
-    position: Position,
+    pub name: Name,
+    pub type_condition: Name, // TODO: Implement TypeCondition
+    pub directives: Vec<Directive>,
+    pub selection_set: SelectionSet,
+    pub position: Range,
 }
 
 #[derive(Debug, Clone, PartialEq)]
