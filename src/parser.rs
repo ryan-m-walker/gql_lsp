@@ -777,20 +777,6 @@ impl Parser {
         self.ptr += 1;
     }
 
-    fn expect_token(&self, token_type: LexicalTokenType) -> Result<(), Diagnostic> {
-        if let Some(token) = self.peek() {
-            if token.token_type == token_type {
-                return Ok(());
-            }
-        }
-
-        return Err(Diagnostic::new(
-            DiagnosticSeverity::Error,
-            String::from(format!("Expected {:?}", token_type)),
-            self.get_current_position(),
-        ));
-    }
-
     fn get_current_position(&self) -> Range {
         if let Some(token) = self.peek() {
             return token.position.clone();
