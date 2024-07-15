@@ -45,48 +45,49 @@ impl Parser {
     fn parse_definitions(&mut self) -> Result<Vec<Definition>, Diagnostic> {
         let mut definitions: Vec<Definition> = Vec::new();
 
-        while self.ptr < self.tokens.len() {
-            let token = self.peek();
+        while let Some(token) = self.peek() {
+            if token.token_type == LexicalTokenType::EOF {
+                break;
+            }
 
-            if let Some(token) = token {
-                let position = token.position.clone();
+            let position = self.get_current_position();
 
-                match &token.token_type {
-                    // https://spec.graphql.org/October2021/#sec-Anonymous-Operation-Definitions
-                    LexicalTokenType::Punctuator(Punctuator::LeftBrace) => {
+            match &token.token_type {
+                // https://spec.graphql.org/October2021/#sec-Anonymous-Operation-Definitions
+                LexicalTokenType::Punctuator(Punctuator::LeftBrace) => {
+                    let operation_definition =
+                        self.parse_operation_definition(OperationType::Query, true)?;
+                    definitions.push(Definition::OperationDefinition(operation_definition));
+                    continue;
+                }
+
+                // https://spec.graphql.org/October2021/#sec-Named-Operation-Definitions
+                LexicalTokenType::Name(name) => {
+                    if let Some(operation_type) = to_operation_type(name) {
+                        self.next();
                         let operation_definition =
-                            self.parse_operation_definition(OperationType::Query, true)?;
+                            self.parse_operation_definition(operation_type, false)?;
                         definitions.push(Definition::OperationDefinition(operation_definition));
                         continue;
                     }
 
-                    // https://spec.graphql.org/October2021/#sec-Named-Operation-Definitions
-                    LexicalTokenType::Name(name) => {
-                        if let Some(operation_type) = to_operation_type(name) {
-                            self.next();
-                            let operation_definition =
-                                self.parse_operation_definition(operation_type, false)?;
-                            definitions.push(Definition::OperationDefinition(operation_definition));
-                            continue;
-                        }
-
-                        if name == "fragment" {
-                            self.next();
-                            let fragment_definition = self.parse_fragment_definition()?;
-                            definitions.push(Definition::FragmentDefinition(fragment_definition));
-                            continue;
-                        }
+                    if name == "fragment" {
+                        self.next();
+                        let fragment_definition = self.parse_fragment_definition()?;
+                        definitions.push(Definition::FragmentDefinition(fragment_definition));
+                        continue;
                     }
+                }
 
-                    _ => {
-                        // return Err(Diagnostic::new(
-                        //     DiagnosticSeverity::Error,
-                        //     String::from("Expected operation definition"),
-                        //     position,
-                        // ));
-                    }
-                };
-            }
+                _ => {
+                    return Err(Diagnostic::new(
+                        DiagnosticSeverity::Error,
+                        String::from("Expected operation definition"),
+                        position,
+                    ));
+                }
+            };
+            
 
             self.next();
         }
