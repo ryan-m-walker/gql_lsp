@@ -101,7 +101,6 @@ impl Lexer {
                     let character = self.character;
                     let line = self.line;
 
-                    // TODO: float value
                     if c.is_ascii_digit() {
                         tokens.push(self.tokenize_number()?);
                     } else if c.is_ascii_alphabetic() || c == '_' {
