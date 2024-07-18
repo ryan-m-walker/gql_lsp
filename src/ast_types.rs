@@ -83,6 +83,17 @@ pub enum OperationType {
     Subscription,
 }
 
+impl OperationType {
+    pub fn parse(value: &str) -> Option<OperationType> {
+        match value {
+            "query" => Some(OperationType::Query),
+            "mutation" => Some(OperationType::Mutation),
+            "subscription" => Some(OperationType::Subscription),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Name {
     pub value: String,
@@ -249,4 +260,66 @@ pub struct Argument {
     pub name: Name,
     pub value: Value,
     pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExecutableDirectiveLocation {
+    Query,
+    Mutation,
+    Subscription,
+    Field,
+    FragmentDefinition,
+    FragmentSpread,
+    InlineFragment,
+    VariableDefinition,
+}
+
+impl ExecutableDirectiveLocation {
+    pub fn parse(value: &str) -> Option<ExecutableDirectiveLocation> {
+        match value {
+            "QUERY" => Some(ExecutableDirectiveLocation::Query),
+            "MUTATION" => Some(ExecutableDirectiveLocation::Mutation),
+            "SUBSCRIPTION" => Some(ExecutableDirectiveLocation::Subscription),
+            "FIELD" => Some(ExecutableDirectiveLocation::Field),
+            "FRAGMENT_DEFINITION" => Some(ExecutableDirectiveLocation::FragmentDefinition),
+            "FRAGMENT_SPREAD" => Some(ExecutableDirectiveLocation::FragmentSpread),
+            "INLINE_FRAGMENT" => Some(ExecutableDirectiveLocation::InlineFragment),
+            "VARIABLE_DEFINITION" => Some(ExecutableDirectiveLocation::VariableDefinition),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeSystemDirectiveLocation {
+    Schema,
+    Scalar,
+    Object,
+    FieldDefinition,
+    ArgumentDefinition,
+    Interface,
+    Union,
+    Enum,
+    EnumValue,
+    InputObject,
+    InputFieldDefinition,
+}
+
+impl TypeSystemDirectiveLocation {
+    pub fn parse(value: &str) -> Option<TypeSystemDirectiveLocation> {
+        match value {
+            "SCHEMA" => Some(TypeSystemDirectiveLocation::Schema),
+            "SCALAR" => Some(TypeSystemDirectiveLocation::Scalar),
+            "OBJECT" => Some(TypeSystemDirectiveLocation::Object),
+            "FIELD_DEFINITION" => Some(TypeSystemDirectiveLocation::FieldDefinition),
+            "ARGUMENT_DEFINITION" => Some(TypeSystemDirectiveLocation::ArgumentDefinition),
+            "INTERFACE" => Some(TypeSystemDirectiveLocation::Interface),
+            "UNION" => Some(TypeSystemDirectiveLocation::Union),
+            "ENUM" => Some(TypeSystemDirectiveLocation::Enum),
+            "ENUM_VALUE" => Some(TypeSystemDirectiveLocation::EnumValue),
+            "INPUT_OBJECT" => Some(TypeSystemDirectiveLocation::InputObject),
+            "INPUT_FIELD_DEFINITION" => Some(TypeSystemDirectiveLocation::InputFieldDefinition),
+            _ => None,
+        }
+    }
 }

@@ -1,19 +1,7 @@
-use crate::{
-    ast_types::OperationType,
-    constants::{CARRIAGE_RETURN, MUTATION_KEYWORD, NEW_LINE, QUERY_KEYWORD, SUBSCRIPTION_KEYWORD},
-};
+use crate::constants::{CARRIAGE_RETURN, NEW_LINE};
 
 pub fn is_line_terminator(c: char) -> bool {
     c == NEW_LINE || c == CARRIAGE_RETURN
-}
-
-pub fn to_operation_type(value: &String) -> Option<OperationType> {
-    match value.as_str() {
-        QUERY_KEYWORD => Some(OperationType::Query),
-        MUTATION_KEYWORD => Some(OperationType::Mutation),
-        SUBSCRIPTION_KEYWORD => Some(OperationType::Subscription),
-        _ => None,
-    }
 }
 
 pub fn is_valid_name(value: &String) -> bool {

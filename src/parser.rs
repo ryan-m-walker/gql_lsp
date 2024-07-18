@@ -65,7 +65,7 @@ impl Parser {
 
                 // https://spec.graphql.org/October2021/#sec-Named-Operation-Definitions
                 LexicalTokenType::Name(name) => {
-                    if let Some(operation_type) = to_operation_type(name) {
+                    if let Some(operation_type) = OperationType::parse(name) {
                         self.next();
                         let operation_definition =
                             self.parse_operation_definition(operation_type, false)?;
@@ -147,7 +147,7 @@ impl Parser {
             let start_position = self.get_current_position().clone();
 
             let operation_type_name = self.parse_name()?;
-            let operation_type = match to_operation_type(&operation_type_name.value) {
+            let operation_type = match OperationType::parse(&operation_type_name.value) {
                 Some(operation_type) => operation_type,
                 None => {
                     return Err(Diagnostic::new(
