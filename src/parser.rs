@@ -2,7 +2,8 @@ use crate::ast_types::{
     Argument, BooleanValue, Definition, Directive, Document, EnumValue, Field, FloatValue,
     FragmentDefinition, FragmentSpread, InlineFragment, IntValue, ListType, ListValue, Name,
     NamedType, NonNullType, NullValue, ObjectField, ObjectValue, OperationDefinition,
-    OperationType, Selection, SelectionSet, StringValue, Type, Value, Variable, VariableDefinition,
+    OperationType, RootOperationTypeDefinition, ScalarTypeDefinition, SchemaDefinition, Selection,
+    SelectionSet, StringValue, Type, Value, Variable, VariableDefinition,
 };
 use crate::helpers::{is_valid_name, to_operation_type};
 use crate::lexer::lex;
@@ -11,7 +12,6 @@ use crate::tokens::{LexicalToken, LexicalTokenType, Punctuator};
 
 pub fn parse(source: String) -> Result<Document, Diagnostic> {
     let tokens = lex(source)?;
-    dbg!(&tokens);
     let mut parser = Parser::new(tokens);
     parser.parse()
 }
@@ -45,9 +45,11 @@ impl Parser {
     fn parse_definitions(&mut self) -> Result<Vec<Definition>, Diagnostic> {
         let mut definitions: Vec<Definition> = Vec::new();
 
-        while let Some(token) = self.peek() {
+        loop {
+            let token = self.peek_safe();
+
             if token.token_type == LexicalTokenType::EOF {
-                break;
+                return Ok(definitions);
             }
 
             let position = self.get_current_position();
@@ -71,11 +73,31 @@ impl Parser {
                         continue;
                     }
 
-                    if name == "fragment" {
-                        self.next();
-                        let fragment_definition = self.parse_fragment_definition()?;
-                        definitions.push(Definition::FragmentDefinition(fragment_definition));
-                        continue;
+                    match name.as_str() {
+                        "fragment" => {
+                            self.next();
+                            let fragment_definition = self.parse_fragment_definition()?;
+                            definitions.push(Definition::FragmentDefinition(fragment_definition));
+                            continue;
+                        }
+                        "schema" => {
+                            let schema_definition = self.parse_schema_definition()?;
+                            definitions.push(Definition::SchemaDefinition(schema_definition));
+                            continue;
+                        }
+                        "scalar" => {
+                            let scalar_type_definition = self.parse_scalar_type_definition()?;
+                            definitions
+                                .push(Definition::ScalarTypeDefinition(scalar_type_definition));
+                            continue;
+                        }
+                        _ => {
+                            return Err(Diagnostic::new(
+                                DiagnosticSeverity::Error,
+                                String::from("Expected operation definition"),
+                                position,
+                            ));
+                        }
                     }
                 }
 
@@ -87,18 +109,77 @@ impl Parser {
                     ));
                 }
             };
+        }
+    }
 
-            self.next();
+    fn parse_scalar_type_definition(&mut self) -> Result<ScalarTypeDefinition, Diagnostic> {
+        let start_position = self.get_current_position();
+
+        self.expect_next(LexicalTokenType::Name(String::from("scalar")))?;
+        let name = self.parse_name()?;
+        let directives = self.parse_directives()?;
+
+        Ok(ScalarTypeDefinition {
+            name,
+            description: None, // TODO
+            directives,
+            position: Range::new(start_position.start, self.get_current_position().end),
+        })
+    }
+
+    fn parse_schema_definition(&mut self) -> Result<SchemaDefinition, Diagnostic> {
+        let start_position = self.get_current_position();
+
+        self.expect_next(LexicalTokenType::Name(String::from("schema")))?;
+        let directives = self.parse_directives()?;
+        self.expect_next(LexicalTokenType::Punctuator(Punctuator::LeftBrace))?;
+
+        let mut operation_types: Vec<RootOperationTypeDefinition> = Vec::new();
+
+        loop {
+            let token = self.peek()?;
+
+            if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightBrace) {
+                self.next();
+                break;
+            }
+
+            let start_position = self.get_current_position().clone();
+
+            let operation_type_name = self.parse_name()?;
+            let operation_type = match to_operation_type(&operation_type_name.value) {
+                Some(operation_type) => operation_type,
+                None => {
+                    return Err(Diagnostic::new(
+                        DiagnosticSeverity::Error,
+                        String::from("Expected operation type"),
+                        operation_type_name.position,
+                    ));
+                }
+            };
+
+            self.expect_next(LexicalTokenType::Punctuator(Punctuator::Colon))?;
+            let named_type = self.parse_named_type()?;
+
+            operation_types.push(RootOperationTypeDefinition {
+                operation_type,
+                named_type,
+                position: Range::new(start_position.start, self.get_current_position().end),
+            });
         }
 
-        Ok(definitions)
+        Ok(SchemaDefinition {
+            description: None, // TODO
+            operation_types,
+            directives,
+            position: Range::new(start_position.start, self.get_current_position().end),
+        })
     }
 
     fn parse_type_condition(&mut self) -> Result<NamedType, Diagnostic> {
         let start_position = self.get_current_position();
 
-        self.expect_token(LexicalTokenType::Name(String::from("on")))?;
-        self.next();
+        self.expect_next(LexicalTokenType::Name(String::from("on")))?;
         let name = self.parse_name()?;
 
         Ok(NamedType {
@@ -131,10 +212,15 @@ impl Parser {
     ) -> Result<OperationDefinition, Diagnostic> {
         let start_position = self.get_current_position();
 
+        dbg!("1");
         let name = self.parse_name_maybe()?;
+        dbg!("2");
         let variable_definitions = self.parse_variable_definitions()?;
+        dbg!("3");
         let directives = self.parse_directives()?;
+        dbg!("4");
         let selection_set = self.parse_selection_set()?;
+        dbg!("5");
 
         Ok(OperationDefinition {
             name,
@@ -150,9 +236,13 @@ impl Parser {
     fn parse_directives(&mut self) -> Result<Vec<Directive>, Diagnostic> {
         let mut directives: Vec<Directive> = Vec::new();
 
-        while let Some(LexicalTokenType::Punctuator(Punctuator::AtSign)) =
-            self.peek().map(|t| &t.token_type)
-        {
+        loop {
+            let token = self.peek()?;
+
+            if token.token_type != LexicalTokenType::Punctuator(Punctuator::AtSign) {
+                return Ok(directives);
+            }
+
             let start_position = self.get_current_position().clone();
 
             self.next();
@@ -166,40 +256,37 @@ impl Parser {
                 position: Range::new(start_position.start, self.get_current_position().end),
             });
         }
-
-        Ok(directives)
     }
 
     fn parse_arguments(&mut self) -> Result<Vec<Argument>, Diagnostic> {
         let mut arguments: Vec<Argument> = Vec::new();
 
-        if let Some(token) = self.peek() {
-            if token.token_type != LexicalTokenType::Punctuator(Punctuator::LeftParenthesis) {
+        let token = self.peek()?.clone();
+
+        if token.token_type != LexicalTokenType::Punctuator(Punctuator::LeftParenthesis) {
+            return Ok(arguments);
+        }
+
+        self.next();
+
+        loop {
+            let token = self.peek()?.clone();
+
+            if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightParenthesis) {
+                self.next();
                 return Ok(arguments);
             }
 
-            self.next();
-
-            while let Some(token) = self.peek() {
-                if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightParenthesis) {
-                    self.next();
-                    return Ok(arguments);
-                }
-
-                let argument = self.parse_argument()?;
-                arguments.push(argument);
-            }
+            let argument = self.parse_argument()?;
+            arguments.push(argument);
         }
-
-        Ok(arguments)
     }
 
     fn parse_argument(&mut self) -> Result<Argument, Diagnostic> {
         let start_position = self.get_current_position().clone();
 
         let name = self.parse_name()?;
-        self.expect_token(LexicalTokenType::Punctuator(Punctuator::Colon))?;
-        self.next();
+        self.expect_next(LexicalTokenType::Punctuator(Punctuator::Colon))?;
         let value = self.parse_value()?;
 
         Ok(Argument {
@@ -212,35 +299,25 @@ impl Parser {
     /// https://spec.graphql.org/October2021/#sec-Selection-Sets
     fn parse_selection_set(&mut self) -> Result<SelectionSet, Diagnostic> {
         let position = self.get_current_position().clone();
-        let token = self.peek();
+
+        self.expect_next(LexicalTokenType::Punctuator(Punctuator::LeftBrace))?;
 
         let mut selections: Vec<Selection> = Vec::new();
 
-        if let Some(LexicalTokenType::Punctuator(Punctuator::LeftBrace)) =
-            token.map(|t| &t.token_type)
-        {
-            self.next();
+        loop {
+            let token = self.peek()?;
 
-            while let Some(token) = self.peek() {
-                if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightBrace) {
-                    self.next();
+            if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightBrace) {
+                self.next();
 
-                    return Ok(SelectionSet {
-                        selections,
-                        position: Range::new(position.start, self.get_current_position().end),
-                    });
-                }
-
-                selections.push(self.parse_selection()?);
-                continue;
+                return Ok(SelectionSet {
+                    selections,
+                    position: Range::new(position.start, self.get_current_position().end),
+                });
             }
-        }
 
-        Err(Diagnostic::new(
-            DiagnosticSeverity::Error,
-            String::from("Expected Selection Set"),
-            self.get_current_position(),
-        ))
+            selections.push(self.parse_selection()?);
+        }
     }
 
     fn parse_fragment_spread(&mut self) -> Result<FragmentSpread, Diagnostic> {
@@ -261,10 +338,9 @@ impl Parser {
 
         let mut type_condition: Option<NamedType> = None;
 
-        if let Some(token) = self.peek() {
-            if token.token_type == LexicalTokenType::Name(String::from("on")) {
-                type_condition = Some(self.parse_type_condition()?);
-            }
+        let token = self.peek()?;
+        if token.token_type == LexicalTokenType::Name(String::from("on")) {
+            type_condition = Some(self.parse_type_condition()?);
         }
 
         let directives = self.parse_directives()?;
@@ -281,77 +357,68 @@ impl Parser {
     /// https://spec.graphql.org/October2021/#Selection
     fn parse_selection(&mut self) -> Result<Selection, Diagnostic> {
         let position = self.get_current_position().clone();
-        let token = self.peek();
+        let token = self.peek()?;
 
-        if let Some(token) = token {
-            match &token.token_type {
-                LexicalTokenType::Punctuator(Punctuator::Ellipsis) => {
-                    // TODO: start position needs to account for the `...`
+        match &token.token_type {
+            LexicalTokenType::Punctuator(Punctuator::Ellipsis) => {
+                // TODO: start position needs to account for the `...`
+                self.next();
+
+                let token = self.peek()?;
+                match &token.token_type {
+                    LexicalTokenType::Name(name) if name == "on" => {
+                        return Ok(Selection::InlineFragment(self.parse_inline_fragment()?));
+                    }
+                    LexicalTokenType::Name(_) => {
+                        return Ok(Selection::FragmentSpread(self.parse_fragment_spread()?));
+                    }
+                    _ => {
+                        return Err(Diagnostic::new(
+                            DiagnosticSeverity::Error,
+                            String::from("Expected Fragment Spread or Inline Fragment"),
+                            self.get_current_position(),
+                        ));
+                    }
+                }
+            }
+            LexicalTokenType::Name(_) => {
+                let mut name = self.parse_name_maybe()?;
+                let mut alias: Option<Name> = None;
+
+                let token = self.peek()?;
+                if token.token_type == LexicalTokenType::Punctuator(Punctuator::Colon) {
                     self.next();
-
-                    if let Some(token) = self.peek() {
-                        match &token.token_type {
-                            LexicalTokenType::Name(name) if name == "on" => {
-                                return Ok(Selection::InlineFragment(
-                                    self.parse_inline_fragment()?,
-                                ));
-                            }
-                            LexicalTokenType::Name(_) => {
-                                return Ok(Selection::FragmentSpread(
-                                    self.parse_fragment_spread()?,
-                                ));
-                            }
-                            _ => {
-                                return Err(Diagnostic::new(
-                                    DiagnosticSeverity::Error,
-                                    String::from("Expected Fragment Spread or Inline Fragment"),
-                                    self.get_current_position(),
-                                ));
-                            }
-                        }
-                    }
+                    alias = name;
+                    name = self.parse_name_maybe()?;
                 }
-                LexicalTokenType::Name(_) => {
-                    let mut name = self.parse_name_maybe()?;
-                    let mut alias: Option<Name> = None;
 
-                    if let Some(token) = self.peek() {
-                        if token.token_type == LexicalTokenType::Punctuator(Punctuator::Colon) {
-                            self.next();
-                            alias = name;
-                            name = self.parse_name_maybe()?;
-                        }
-                    }
+                let arguments = self.parse_arguments()?;
+                let directives = self.parse_directives()?;
 
-                    let arguments = self.parse_arguments()?;
-                    let directives = self.parse_directives()?;
+                let mut selection_set: Option<SelectionSet> = None;
 
-                    let mut selection_set: Option<SelectionSet> = None;
-
-                    if let Some(token) = self.peek() {
-                        if token.token_type == LexicalTokenType::Punctuator(Punctuator::LeftBrace) {
-                            selection_set = Some(self.parse_selection_set()?);
-                        }
-                    }
-
-                    return Ok(Selection::Field(Field {
-                        alias,
-                        name: name.unwrap(),
-                        selection_set,
-                        arguments,
-                        directives,
-                        position: Range::new(position.start, self.get_current_position().end),
-                    }));
+                let token = self.peek()?;
+                if token.token_type == LexicalTokenType::Punctuator(Punctuator::LeftBrace) {
+                    selection_set = Some(self.parse_selection_set()?);
                 }
-                _ => {}
+
+                return Ok(Selection::Field(Field {
+                    alias,
+                    name: name.unwrap(),
+                    selection_set,
+                    arguments,
+                    directives,
+                    position: Range::new(position.start, self.get_current_position().end),
+                }));
+            }
+            _ => {
+                return Err(Diagnostic::new(
+                    DiagnosticSeverity::Error,
+                    String::from("Expected Selection"),
+                    self.get_current_position(),
+                ))
             }
         }
-
-        Err(Diagnostic::new(
-            DiagnosticSeverity::Error,
-            String::from("Expected Selection"),
-            self.get_current_position(),
-        ))
     }
 
     fn parse_name(&mut self) -> Result<Name, Diagnostic> {
@@ -368,10 +435,10 @@ impl Parser {
     }
 
     fn parse_name_maybe(&mut self) -> Result<Option<Name>, Diagnostic> {
-        let token = self.peek().cloned();
         let position = self.get_current_position();
+        let token = self.peek()?.clone();
 
-        if let Some(LexicalTokenType::Name(name)) = token.map(|t| t.token_type) {
+        if let LexicalTokenType::Name(name) = &token.token_type {
             if is_valid_name(&name) {
                 self.next();
 
@@ -394,139 +461,117 @@ impl Parser {
     fn parse_variable_definitions(&mut self) -> Result<Vec<VariableDefinition>, Diagnostic> {
         let mut variable_definitions: Vec<VariableDefinition> = Vec::new();
 
-        if let Some(token) = self.peek() {
-            // check to make sure we're starting with `(`
-            if token.token_type != LexicalTokenType::Punctuator(Punctuator::LeftParenthesis) {
+        let token = self.peek()?;
+        if token.token_type != LexicalTokenType::Punctuator(Punctuator::LeftParenthesis) {
+            return Ok(variable_definitions);
+        }
+
+        // skip over the `(`
+        self.next();
+
+        loop {
+            let token = self.peek()?;
+
+            if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightParenthesis) {
+                self.next();
                 return Ok(variable_definitions);
             }
 
-            // skip over the `(`
-            self.next();
-
-            while let Some(token) = self.peek() {
-                // we found `)` so we're done
-                if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightParenthesis) {
-                    self.next();
-                    return Ok(variable_definitions);
-                }
-
-                let variable_definition = self.parse_variable_definition()?;
-                variable_definitions.push(variable_definition);
-            }
+            let variable_definition = self.parse_variable_definition()?;
+            variable_definitions.push(variable_definition);
         }
-
-        Ok(variable_definitions)
     }
 
     fn parse_variable_definition(&mut self) -> Result<VariableDefinition, Diagnostic> {
-        let token = self.peek();
+        let token = self.peek()?;
 
-        if let Some(token) = token {
-            let position = token.position.clone();
+        let position = token.position.clone();
 
-            if token.token_type != LexicalTokenType::Punctuator(Punctuator::DollarSign) {
-                return Err(Diagnostic::new(
-                    DiagnosticSeverity::Error,
-                    String::from("Expected \"$\""),
-                    token.position.clone(),
-                ));
-            }
+        if token.token_type != LexicalTokenType::Punctuator(Punctuator::DollarSign) {
+            return Err(Diagnostic::new(
+                DiagnosticSeverity::Error,
+                String::from("Expected \"$\""),
+                token.position.clone(),
+            ));
+        }
+        self.next();
+
+        let name = self.parse_name()?;
+
+        let token = self.peek()?;
+        if token.token_type != LexicalTokenType::Punctuator(Punctuator::Colon) {
+            return Err(Diagnostic::new(
+                DiagnosticSeverity::Error,
+                String::from("Expected \":\""),
+                token.position.clone(),
+            ));
+        }
+        self.next();
+
+        let variable_type = self.parse_type()?;
+
+        let mut default_value: Option<Value> = None;
+
+        let token = self.peek()?;
+        if token.token_type == LexicalTokenType::Punctuator(Punctuator::EqualSign) {
             self.next();
-
-            let name = match self.parse_name_maybe()? {
-                Some(name) => name,
-                None => {
-                    return Err(Diagnostic::new(
-                        DiagnosticSeverity::Error,
-                        String::from("Expected Name"),
-                        position,
-                    ));
-                }
-            };
-
-            if let Some(token) = self.peek() {
-                if token.token_type != LexicalTokenType::Punctuator(Punctuator::Colon) {
-                    return Err(Diagnostic::new(
-                        DiagnosticSeverity::Error,
-                        String::from("Expected \":\""),
-                        token.position.clone(),
-                    ));
-                }
-                self.next();
-            }
-
-            let variable_type = self.parse_type()?;
-
-            let mut default_value: Option<Value> = None;
-
-            if let Some(token) = self.peek() {
-                if token.token_type == LexicalTokenType::Punctuator(Punctuator::EqualSign) {
-                    self.next();
-                    default_value = Some(self.parse_value()?);
-                }
-            }
-
-            return Ok(VariableDefinition {
-                variable: Variable {
-                    name,
-                    position: Range::new(position.start.clone(), self.get_current_position().end),
-                },
-                variable_type,
-                default_value,
-                position: Range::new(position.start, self.get_current_position().end),
-            });
+            default_value = Some(self.parse_value()?);
         }
 
-        Err(Diagnostic::new(
-            DiagnosticSeverity::Error,
-            String::from("Expected Variable Definition"),
-            self.get_current_position(),
-        ))
+        return Ok(VariableDefinition {
+            variable: Variable {
+                name,
+                position: Range::new(position.start.clone(), self.get_current_position().end),
+            },
+            variable_type,
+            default_value,
+            position: Range::new(position.start, self.get_current_position().end),
+        });
     }
 
     fn parse_type(&mut self) -> Result<Type, Diagnostic> {
-        if let Some(token) = self.peek() {
-            let start_position = token.position.clone();
+        let token = self.peek()?;
+        let start_position = token.position.clone();
 
-            if token.token_type == LexicalTokenType::Punctuator(Punctuator::LeftBracket) {
-                let list_type = self.parse_list_type()?;
-                return Ok(self.wrap_if_non_null(list_type));
-            }
-
-            let name_type = self.parse_name_maybe()?;
-
-            if let Some(name_type) = name_type {
-                return Ok(self.wrap_if_non_null(Type::NamedType(NamedType {
-                    name: name_type,
-                    position: Range::new(start_position.start, self.get_current_position().end),
-                })));
-            }
+        if token.token_type == LexicalTokenType::Punctuator(Punctuator::LeftBracket) {
+            let list_type = self.parse_list_type()?;
+            return Ok(self.wrap_if_non_null(list_type)?);
         }
 
-        Err(Diagnostic::new(
-            DiagnosticSeverity::Error,
-            String::from("Expected Type"),
-            self.get_current_position(),
-        ))
+        let name_type = self.parse_name()?;
+
+        return Ok(self.wrap_if_non_null(Type::NamedType(NamedType {
+            name: name_type,
+            position: Range::new(start_position.start, self.get_current_position().end),
+        }))?);
     }
 
-    fn wrap_if_non_null(&mut self, wrapped_type: Type) -> Type {
+    fn parse_named_type(&mut self) -> Result<NamedType, Diagnostic> {
+        let start_position = self.get_current_position().clone();
+        let name = self.parse_name()?;
+
+        Ok(NamedType {
+            name,
+            position: Range::new(start_position.start, self.get_current_position().end),
+        })
+    }
+
+    fn wrap_if_non_null(&mut self, wrapped_type: Type) -> Result<Type, Diagnostic> {
         let start_position = self.get_current_position().clone();
 
-        if let Some(token) = self.peek() {
-            if token.token_type != LexicalTokenType::Punctuator(Punctuator::ExclamationMark) {
-                return wrapped_type;
-            }
-
-            self.next();
+        let token = self.peek()?;
+        if token.token_type != LexicalTokenType::Punctuator(Punctuator::ExclamationMark) {
+            return Ok(wrapped_type);
         }
+
+        self.next();
 
         let end_position = self.get_current_position().clone();
 
-        Type::NonNullType(NonNullType {
+        Ok(Type::NonNullType(NonNullType {
             wrapped_type: Box::new(wrapped_type),
             position: Range::new(start_position.start, end_position.end),
-        })
+        }))
     }
 
     fn parse_list_type(&mut self) -> Result<Type, Diagnostic> {
@@ -535,17 +580,16 @@ impl Parser {
         self.next();
         let wrapped_type = self.parse_type()?;
 
-        if let Some(token) = self.peek() {
-            if token.token_type != LexicalTokenType::Punctuator(Punctuator::RightBracket) {
-                return Err(Diagnostic::new(
-                    DiagnosticSeverity::Error,
-                    String::from("Expected \"]\""),
-                    token.position.clone(),
-                ));
-            }
-
-            self.next();
+        let token = self.peek()?;
+        if token.token_type != LexicalTokenType::Punctuator(Punctuator::RightBracket) {
+            return Err(Diagnostic::new(
+                DiagnosticSeverity::Error,
+                String::from("Expected \"]\""),
+                token.position.clone(),
+            ));
         }
+
+        self.next();
 
         let end_position = self.get_current_position().clone();
 
@@ -557,90 +601,72 @@ impl Parser {
 
     // TODO: when to allow variables?
     fn parse_value(&mut self) -> Result<Value, Diagnostic> {
-        if let Some(token) = self.peek() {
-            let position = token.position.clone();
+        let token = self.peek()?;
+        let position = token.position.clone();
 
-            match &token.token_type {
-                LexicalTokenType::IntValue(value) => {
-                    let value = value.clone();
-                    self.next();
-                    return Ok(Value::IntValue(IntValue { value, position }));
-                }
-                LexicalTokenType::FloatValue(value) => {
-                    let value = value.clone();
-                    self.next();
-                    return Ok(Value::FloatValue(FloatValue { value, position }));
-                }
-                LexicalTokenType::StringValue(value) => {
-                    let value = value.clone();
-                    self.next();
-                    return Ok(Value::StringValue(StringValue {
-                        value,
-                        block: false,
-                        position,
-                    }));
-                }
-                LexicalTokenType::Name(name) if name == "true" => {
-                    self.next();
-                    return Ok(Value::BooleanValue(BooleanValue {
-                        value: true,
-                        position,
-                    }));
-                }
-                LexicalTokenType::Name(name) if name == "false" => {
-                    self.next();
-                    return Ok(Value::BooleanValue(BooleanValue {
-                        value: false,
-                        position,
-                    }));
-                }
-                LexicalTokenType::Name(name) if name == "null" => {
-                    self.next();
-                    return Ok(Value::NullValue(NullValue { position }));
-                }
-                LexicalTokenType::Punctuator(Punctuator::LeftBracket) => {
-                    return Ok(self.parse_list_value()?);
-                }
-                LexicalTokenType::Punctuator(Punctuator::LeftBrace) => {
-                    return Ok(self.parse_object_value()?);
-                }
-                LexicalTokenType::Punctuator(Punctuator::DollarSign) => {
-                    self.next();
-                    let name = self.parse_name_maybe()?;
-                    match name {
-                        Some(name) => {
-                            return Ok(Value::Variable(Variable { name, position }));
-                        }
-                        None => {
-                            return Err(Diagnostic::new(
-                                DiagnosticSeverity::Error,
-                                String::from("Expected Name"),
-                                position,
-                            ));
-                        }
-                    }
-                }
-                LexicalTokenType::Name(name) => {
-                    return Ok(Value::EnumValue(EnumValue {
-                        value: name.to_string(),
-                        position,
-                    }));
-                }
-                _ => {
-                    return Err(Diagnostic::new(
-                        DiagnosticSeverity::Error,
-                        String::from("Expected Value"),
-                        position,
-                    ));
-                }
+        match &token.token_type {
+            LexicalTokenType::IntValue(value) => {
+                let value = value.clone();
+                self.next();
+                return Ok(Value::IntValue(IntValue { value, position }));
+            }
+            LexicalTokenType::FloatValue(value) => {
+                let value = value.clone();
+                self.next();
+                return Ok(Value::FloatValue(FloatValue { value, position }));
+            }
+            LexicalTokenType::StringValue(value) => {
+                let value = value.clone();
+                self.next();
+                return Ok(Value::StringValue(StringValue {
+                    value,
+                    block: false,
+                    position,
+                }));
+            }
+            LexicalTokenType::Name(name) if name == "true" => {
+                self.next();
+                return Ok(Value::BooleanValue(BooleanValue {
+                    value: true,
+                    position,
+                }));
+            }
+            LexicalTokenType::Name(name) if name == "false" => {
+                self.next();
+                return Ok(Value::BooleanValue(BooleanValue {
+                    value: false,
+                    position,
+                }));
+            }
+            LexicalTokenType::Name(name) if name == "null" => {
+                self.next();
+                return Ok(Value::NullValue(NullValue { position }));
+            }
+            LexicalTokenType::Punctuator(Punctuator::LeftBracket) => {
+                return Ok(self.parse_list_value()?);
+            }
+            LexicalTokenType::Punctuator(Punctuator::LeftBrace) => {
+                return Ok(self.parse_object_value()?);
+            }
+            LexicalTokenType::Punctuator(Punctuator::DollarSign) => {
+                self.next();
+                let name = self.parse_name()?;
+                return Ok(Value::Variable(Variable { name, position }));
+            }
+            LexicalTokenType::Name(name) => {
+                return Ok(Value::EnumValue(EnumValue {
+                    value: name.to_string(),
+                    position,
+                }));
+            }
+            _ => {
+                return Err(Diagnostic::new(
+                    DiagnosticSeverity::Error,
+                    String::from("Expected Value"),
+                    position,
+                ));
             }
         }
-
-        Err(Diagnostic::new(
-            DiagnosticSeverity::Error,
-            String::from("Expected Value"),
-            self.get_current_position(),
-        ))
     }
 
     fn parse_list_value(&mut self) -> Result<Value, Diagnostic> {
@@ -650,7 +676,9 @@ impl Parser {
 
         let mut values: Vec<Value> = Vec::new();
 
-        while let Some(token) = self.peek() {
+        loop {
+            let token = self.peek()?;
+
             if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightBracket) {
                 self.next();
                 break;
@@ -675,12 +703,7 @@ impl Parser {
 
         let mut object_fields: Vec<ObjectField> = Vec::new();
 
-        while let Some(token) = self.peek() {
-            if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightBrace) {
-                self.next();
-                break;
-            }
-
+        while self.peek()?.token_type != LexicalTokenType::Punctuator(Punctuator::RightBrace) {
             let object_field = self.parse_object_field()?;
             object_fields.push(object_field);
         }
@@ -696,28 +719,8 @@ impl Parser {
     fn parse_object_field(&mut self) -> Result<ObjectField, Diagnostic> {
         let start_position = self.get_current_position().clone();
 
-        let name = match self.parse_name_maybe()? {
-            Some(name) => name,
-            None => {
-                return Err(Diagnostic::new(
-                    DiagnosticSeverity::Error,
-                    String::from("Expected Name"),
-                    start_position,
-                ));
-            }
-        };
-
-        if let Some(token) = self.peek() {
-            if token.token_type != LexicalTokenType::Punctuator(Punctuator::Colon) {
-                return Err(Diagnostic::new(
-                    DiagnosticSeverity::Error,
-                    String::from("Expected \":\""),
-                    token.position.clone(),
-                ));
-            }
-            self.next();
-        }
-
+        let name = self.parse_name()?;
+        self.expect_next(LexicalTokenType::Punctuator(Punctuator::Colon))?;
         let value = self.parse_value()?;
 
         Ok(ObjectField {
@@ -727,34 +730,60 @@ impl Parser {
         })
     }
 
-    fn peek(&self) -> Option<&LexicalToken> {
-        self.tokens.get(self.ptr)
+    fn peek(&self) -> Result<&LexicalToken, Diagnostic> {
+        let token = self.tokens.get(self.ptr);
+
+        match token {
+            Some(token) => Ok(token),
+            None => Err(Diagnostic::new(
+                DiagnosticSeverity::Error,
+                String::from("Unexpected EOF"),
+                self.get_current_position(),
+            )),
+        }
+    }
+
+    fn peek_safe(&self) -> LexicalToken {
+        let token = self.tokens.get(self.ptr);
+
+        match token {
+            Some(token) => token.clone(),
+            None => LexicalToken {
+                token_type: LexicalTokenType::EOF,
+                position: self.get_current_position().clone(),
+            },
+        }
     }
 
     fn next(&mut self) {
         self.ptr += 1;
     }
 
-    fn expect_token(&mut self, token_type: LexicalTokenType) -> Result<bool, Diagnostic> {
-        if let Some(token) = self.peek() {
-            if token.token_type == token_type {
-                return Ok(true);
-            }
+    fn expect_next(&mut self, token_type: LexicalTokenType) -> Result<bool, Diagnostic> {
+        let token = self.peek()?;
+
+        if token.token_type == token_type {
+            self.next();
+            return Ok(true);
         }
 
         Err(Diagnostic::new(
             DiagnosticSeverity::Error,
-            String::from("Unexpected token"),
+            String::from(format!(
+                "Unexpected token. Expected {:?}, found {:?}",
+                token_type, token
+            )),
             self.get_current_position(),
         ))
     }
 
     fn get_current_position(&self) -> Range {
-        if let Some(token) = self.peek() {
-            return token.position.clone();
-        }
+        let token = self.peek();
 
-        Range::new(Position::new(0, 0), Position::new(0, 0))
+        match token {
+            Ok(token) => token.position.clone(),
+            Err(_) => Range::new(Position::new(0, 0), Position::new(0, 0)),
+        }
     }
 }
 
@@ -910,8 +939,6 @@ mod tests {
 
         let document = parse(source.to_string()).unwrap();
 
-        dbg!(&document);
-
         match document.definitions.get(0) {
             Some(Definition::OperationDefinition(operation_definition)) => {
                 let selection_set = &operation_definition.selection_set.selections;
@@ -968,6 +995,68 @@ mod tests {
                 }
             }
             _ => panic!("Expected OperationDefinition"),
+        }
+    }
+
+    #[test]
+    fn it_can_parse_schema_definitions() {
+        let source = r#"
+            schema {
+                query: Query
+                mutation: Mutation
+                subscription: Subscription
+            }"#;
+
+        let document = parse(source.to_string()).unwrap();
+
+        match document.definitions.get(0) {
+            Some(Definition::SchemaDefinition(schema_definition)) => {
+                let query = schema_definition.operation_types.get(0).unwrap();
+                assert_eq!(query.operation_type, OperationType::Query);
+                assert_eq!(query.named_type.name.value, "Query");
+
+                let mutation = schema_definition.operation_types.get(1).unwrap();
+                assert_eq!(mutation.operation_type, OperationType::Mutation);
+                assert_eq!(mutation.named_type.name.value, "Mutation");
+
+                let subscription = schema_definition.operation_types.get(2).unwrap();
+                assert_eq!(subscription.operation_type, OperationType::Subscription);
+                assert_eq!(subscription.named_type.name.value, "Subscription");
+            }
+            _ => panic!("Expected SchemaDefinition"),
+        }
+    }
+
+    #[test]
+    fn it_errors_for_invalid_schema_definitions() {
+        let source = r#"
+            schema {
+                query: Query
+                mutation: Mutation
+                subscription: Subscription
+                foo: Foo
+            }"#;
+
+        let document = parse(source.to_string());
+        assert!(document.is_err());
+    }
+
+    #[test]
+    fn it_can_parse_scalar_type_definitions() {
+        let source = r#"
+            scalar Date
+            scalar Time
+            scalar DateTime
+        "#;
+
+        let document = parse(source.to_string());
+        let document = document.unwrap();
+
+        match document.definitions.get(0) {
+            Some(Definition::ScalarTypeDefinition(scalar_type_definition)) => {
+                assert_eq!(scalar_type_definition.name.value, "Date");
+            }
+            _ => panic!("Expected ScalarTypeDefinition"),
         }
     }
 }

@@ -12,7 +12,31 @@ pub struct Document {
 pub enum Definition {
     OperationDefinition(OperationDefinition),
     FragmentDefinition(FragmentDefinition),
-    // TypeSystemDefinitionOrExtension(TypeSystemDefinitionOrExtension),
+    SchemaDefinition(SchemaDefinition),
+    ScalarTypeDefinition(ScalarTypeDefinition),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScalarTypeDefinition {
+    pub description: Option<String>,
+    pub name: Name,
+    pub directives: Vec<Directive>,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RootOperationTypeDefinition {
+    pub operation_type: OperationType,
+    pub named_type: NamedType,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SchemaDefinition {
+    pub description: Option<String>,
+    pub operation_types: Vec<RootOperationTypeDefinition>,
+    pub directives: Vec<Directive>,
+    pub position: Range,
 }
 
 // #[derive(Debug, Clone, PartialEq)]
