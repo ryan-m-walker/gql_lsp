@@ -212,15 +212,10 @@ impl Parser {
     ) -> Result<OperationDefinition, Diagnostic> {
         let start_position = self.get_current_position();
 
-        dbg!("1");
         let name = self.parse_name_maybe()?;
-        dbg!("2");
         let variable_definitions = self.parse_variable_definitions()?;
-        dbg!("3");
         let directives = self.parse_directives()?;
-        dbg!("4");
         let selection_set = self.parse_selection_set()?;
-        dbg!("5");
 
         Ok(OperationDefinition {
             name,
