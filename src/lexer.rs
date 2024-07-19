@@ -5,6 +5,7 @@ use crate::tokens::{char_to_punctuator, LexicalToken, LexicalTokenType, Punctuat
 
 pub fn lex(source: String) -> Result<Vec<LexicalToken>, Diagnostic> {
     let mut lexer = Lexer::new(source);
+    println!("here");
     lexer.lex()
 }
 
@@ -27,6 +28,8 @@ impl Lexer {
 
     pub fn lex(&mut self) -> Result<Vec<LexicalToken>, Diagnostic> {
         let mut tokens: Vec<LexicalToken> = Vec::new();
+
+        dbg!(&self.source);
 
         while let Some(c) = self.peek() {
             match c {
@@ -77,20 +80,12 @@ impl Lexer {
                     ));
                 }
                 '"' => {
-                    let character = self.character;
-                    let line = self.line;
 
-                    self.next();
-                    let value = self.consume_while(|c| c != '"'); // TODO: handle unexpected EOF
-                    self.next();
-
-                    tokens.push(LexicalToken::new(
-                        LexicalTokenType::StringValue(value.clone()),
-                        Range::new(
-                            Position::new(line, character),
-                            Position::new(self.line, self.character),
-                        ),
-                    ));
+                    // if self.peek_at(1) == Some('"') && self.peek_at(2) == Some('"') {
+                    //     tokens.push(self.tokenize_block_string()?);
+                    // } else {
+                        tokens.push(self.tokenize_string()?);
+                    // }
                 }
 
                 '-' => {
@@ -136,6 +131,75 @@ impl Lexer {
         ));
 
         Ok(tokens)
+    }
+
+    fn tokenize_string(&mut self) -> Result<LexicalToken, Diagnostic> {
+        let start_position = Position::new(self.line, self.character);
+        self.expect_next('"')?;
+
+        let mut result = String::new();
+
+        while let Some(c) = self.peek() {
+            if c == '"' {
+                self.next();
+                return Ok(LexicalToken::new(
+                    LexicalTokenType::StringValue(result),
+                    Range::new(
+                        start_position,
+                        Position::new(self.line, self.character),
+                    ),
+                ));
+            }
+
+            if c == '\\' {
+                self.next();
+                let escaped = self.peek();
+
+                match escaped {
+                    Some('n') => result.push('\n'),
+                    Some('r') => result.push('\r'),
+                    Some('t') => result.push('\t'),
+                    Some('\\') => result.push('\\'),
+                    Some('"') => result.push('"'),
+                    // TODO maybe
+                    // Some('u')
+                    _ => {
+                        return Err(Diagnostic::new(
+                            DiagnosticSeverity::Error,
+                            String::from("Invalid character escape sequence."),
+                            Range::new(
+                                Position::new(self.line, self.character),
+                                Position::new(self.line, self.character + 1),
+                            ),
+                        ));
+                    }
+                }
+
+                self.next();
+                continue;
+            }
+
+
+            if c == '\n' || c == '\r' {
+                break;
+            }
+
+            result.push(c);
+            self.next();
+        }
+
+        Err(Diagnostic::new(
+            DiagnosticSeverity::Error,
+            String::from("Unterminated string."),
+            Range::new(
+                Position::new(self.line, self.character),
+                Position::new(self.line, self.character + 1),
+            ),
+        ))
+    }
+
+    fn tokenize_block_string(&mut self) -> Result<LexicalToken, Diagnostic> {
+        unimplemented!()
     }
 
     fn tokenize_number(&mut self) -> Result<LexicalToken, Diagnostic> {
@@ -233,6 +297,34 @@ impl Lexer {
         self.source.chars().nth(self.ptr)
     }
 
+    fn peek_at(&self, n: usize) -> Option<char> {
+        self.source.chars().nth(self.ptr + n)
+    }
+
+    fn expect_next(&mut self, expected: char) -> Result<char, Diagnostic> {
+        let next = self.next();
+
+        match next {
+            Some(c) if c == expected => Ok(c),
+            Some(c) => Err(Diagnostic::new(
+                DiagnosticSeverity::Error,
+                String::from(format!("Expected \"{}\", found \"{}\"", expected, c)),
+                Range::new(
+                    Position::new(self.line, self.character),
+                    Position::new(self.line, self.character + 1),
+                ),
+            )),
+            None => Err(Diagnostic::new(
+                DiagnosticSeverity::Error,
+                String::from(format!("Expected \"{}\", found EOF", expected)),
+                Range::new(
+                    Position::new(self.line, self.character),
+                    Position::new(self.line, self.character + 1),
+                ),
+            )),
+        }
+    }
+
     fn expect_peek(&self, expected: char) -> Result<char, Diagnostic> {
         let next = self.peek();
 
@@ -317,6 +409,31 @@ mod tests {
             token.token_type,
             LexicalTokenType::StringValue(String::from("Hello, World!"))
         );
+    }
+
+    #[test]
+    fn it_tokenizes_string_values_with_escaped_characters() {
+        let source = String::from("\"Hello,\\nWorld!\"");
+        let tokens = lex(source).unwrap();
+        let token = tokens.first().unwrap();
+        assert_eq!(
+            token.token_type,
+            LexicalTokenType::StringValue(String::from("Hello,\nWorld!"))
+        );
+    }
+
+    #[test]
+    fn it_errs_if_string_is_unterminated() {
+        let source = String::from("\"Hello, World!");
+        let result = lex(source);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn it_errs_if_string_has_line_break() {
+        let source = String::from("\"Hello,\nWorld!\"");
+        let result = lex(source);
+        assert!(result.is_err());
     }
 
     #[test]

@@ -1,3 +1,7 @@
-query Test($id: ID!, $name: String) {
-    test(id: $id, name: $name)
+type Foo implements Node {
+    "The name of Foo"
+    name(
+        "test"
+        id: ID!
+    ): String @deprecated(reason: "Use 'name' field instead.")
 }

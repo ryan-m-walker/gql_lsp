@@ -3,9 +3,9 @@ use crate::ast_types::{
     FragmentDefinition, FragmentSpread, InlineFragment, IntValue, ListType, ListValue, Name,
     NamedType, NonNullType, NullValue, ObjectField, ObjectValue, OperationDefinition,
     OperationType, RootOperationTypeDefinition, ScalarTypeDefinition, SchemaDefinition, Selection,
-    SelectionSet, StringValue, Type, Value, Variable, VariableDefinition,
+    SelectionSet, StringValue, Type, Value, Variable, VariableDefinition, ObjectTypeDefinition, FieldDefinition, InputValueDefinition,
 };
-use crate::helpers::{is_valid_name, to_operation_type};
+use crate::helpers::is_valid_name;
 use crate::lexer::lex;
 use crate::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
 use crate::tokens::{LexicalToken, LexicalTokenType, Punctuator};
@@ -54,65 +54,80 @@ impl Parser {
 
             let position = self.get_current_position();
 
-            match &token.token_type {
-                // https://spec.graphql.org/October2021/#sec-Anonymous-Operation-Definitions
-                LexicalTokenType::Punctuator(Punctuator::LeftBrace) => {
-                    let operation_definition =
-                        self.parse_operation_definition(OperationType::Query, true)?;
-                    definitions.push(Definition::OperationDefinition(operation_definition));
+            if token.token_type == LexicalTokenType::Punctuator(Punctuator::LeftBrace) {
+                definitions.push(Definition::OperationDefinition(
+                    self.parse_operation_definition(OperationType::Query, true)?
+                ));
+                continue;
+            }
+
+            if let LexicalTokenType::Name(name) = &token.token_type {
+                if let Some(operation_type) = OperationType::parse(name) {
+                    definitions.push(Definition::OperationDefinition(
+                        self.parse_operation_definition(operation_type, false)?
+                    ));
                     continue;
                 }
+            }
 
-                // https://spec.graphql.org/October2021/#sec-Named-Operation-Definitions
-                LexicalTokenType::Name(name) => {
-                    if let Some(operation_type) = OperationType::parse(name) {
-                        self.next();
-                        let operation_definition =
-                            self.parse_operation_definition(operation_type, false)?;
-                        definitions.push(Definition::OperationDefinition(operation_definition));
-                        continue;
-                    }
+            if token.token_type == LexicalTokenType::Name(String::from("fragment")) {
+                definitions.push(Definition::FragmentDefinition(
+                    self.parse_fragment_definition()?
+                ));
+                continue;
+            }
 
-                    match name.as_str() {
-                        "fragment" => {
-                            self.next();
-                            let fragment_definition = self.parse_fragment_definition()?;
-                            definitions.push(Definition::FragmentDefinition(fragment_definition));
-                            continue;
-                        }
-                        "schema" => {
-                            let schema_definition = self.parse_schema_definition()?;
-                            definitions.push(Definition::SchemaDefinition(schema_definition));
-                            continue;
-                        }
-                        "scalar" => {
-                            let scalar_type_definition = self.parse_scalar_type_definition()?;
-                            definitions
-                                .push(Definition::ScalarTypeDefinition(scalar_type_definition));
-                            continue;
-                        }
-                        _ => {
-                            return Err(Diagnostic::new(
-                                DiagnosticSeverity::Error,
-                                String::from("Expected operation definition"),
-                                position,
-                            ));
-                        }
-                    }
-                }
+            // see if type definition has a description
+            let description = self.parse_description();
+            // need to reset the token since description parsing may have consumed it
+            let token = self.peek()?;
 
-                _ => {
-                    return Err(Diagnostic::new(
-                        DiagnosticSeverity::Error,
-                        String::from("Expected operation definition"),
-                        position,
-                    ));
-                }
-            };
+            if token.token_type == LexicalTokenType::Name(String::from("schema")) {
+                definitions.push(Definition::SchemaDefinition(
+                    self.parse_schema_definition(description)?
+                ));
+                continue;
+            }
+
+            if token.token_type == LexicalTokenType::Name(String::from("scalar")) {
+                definitions.push(Definition::ScalarTypeDefinition(
+                    self.parse_scalar_type_definition(description)?
+                ));
+                continue;
+            }
+
+            if token.token_type == LexicalTokenType::Name(String::from("type")) {
+                definitions.push(Definition::ObjectTypeDefinition(
+                    self.parse_object_type_definition(description)?
+                ));
+                continue;
+            }
+
+            return Err(Diagnostic::new(
+                DiagnosticSeverity::Error,
+                String::from("Expected operation definition"),
+                position,
+            ));
         }
     }
 
-    fn parse_scalar_type_definition(&mut self) -> Result<ScalarTypeDefinition, Diagnostic> {
+    fn parse_description(&mut self) -> Option<StringValue> {
+        let token = self.peek_safe();
+
+        match &token.token_type {
+            LexicalTokenType::StringValue(value) => {
+                self.next();
+                return Some(StringValue {
+                    value: value.clone(),
+                    block: false,
+                    position: token.position.clone(),
+                });
+            }
+            _ => None,
+        }
+    }
+
+    fn parse_scalar_type_definition(&mut self, description: Option<StringValue>) -> Result<ScalarTypeDefinition, Diagnostic> {
         let start_position = self.get_current_position();
 
         self.expect_next(LexicalTokenType::Name(String::from("scalar")))?;
@@ -121,13 +136,13 @@ impl Parser {
 
         Ok(ScalarTypeDefinition {
             name,
-            description: None, // TODO
+            description,
             directives,
             position: Range::new(start_position.start, self.get_current_position().end),
         })
     }
 
-    fn parse_schema_definition(&mut self) -> Result<SchemaDefinition, Diagnostic> {
+    fn parse_schema_definition(&mut self, description: Option<StringValue>) -> Result<SchemaDefinition, Diagnostic> {
         let start_position = self.get_current_position();
 
         self.expect_next(LexicalTokenType::Name(String::from("schema")))?;
@@ -169,7 +184,7 @@ impl Parser {
         }
 
         Ok(SchemaDefinition {
-            description: None, // TODO
+            description,
             operation_types,
             directives,
             position: Range::new(start_position.start, self.get_current_position().end),
@@ -191,6 +206,7 @@ impl Parser {
     fn parse_fragment_definition(&mut self) -> Result<FragmentDefinition, Diagnostic> {
         let start_position = self.get_current_position();
 
+        self.expect_next(LexicalTokenType::Name(String::from("fragment")))?;
         let name = self.parse_name()?;
         let type_condition = self.parse_type_condition()?;
         let directives = self.parse_directives()?;
@@ -211,6 +227,11 @@ impl Parser {
         anonymous: bool,
     ) -> Result<OperationDefinition, Diagnostic> {
         let start_position = self.get_current_position();
+
+        // lol kinda don't know why this is needed shrug
+        if !anonymous {
+            self.next();
+        }
 
         let name = self.parse_name_maybe()?;
         let variable_definitions = self.parse_variable_definitions()?;
@@ -780,6 +801,148 @@ impl Parser {
             Err(_) => Range::new(Position::new(0, 0), Position::new(0, 0)),
         }
     }
+
+    fn parse_object_type_definition(&mut self, description: Option<StringValue>) -> Result<ObjectTypeDefinition, Diagnostic> {
+        let start_position = self.get_current_position().clone();
+
+        self.expect_next(LexicalTokenType::Name(String::from("type")))?;
+        let name = self.parse_name()?;
+        let interfaces = self.parse_interfaces()?;
+        let directives = self.parse_directives()?;
+        let fields = self.parse_fields()?;
+
+        Ok(ObjectTypeDefinition {
+            name,
+            description,
+            interfaces,
+            directives,
+            fields,
+            position: Range::new(start_position.start, self.get_current_position().end),
+        })
+    }
+
+    fn parse_interfaces(&mut self) -> Result<Vec<NamedType>, Diagnostic> {
+        let mut interfaces = Vec::new();
+
+        if self.peek_safe().token_type != LexicalTokenType::Name(String::from("implements")) {
+            return Ok(interfaces);
+        }
+
+        self.next();
+
+        loop {
+            let named_type = self.parse_named_type()?;
+
+            interfaces.push(named_type);
+
+            let token = self.peek_safe();
+
+            if token.token_type != LexicalTokenType::Punctuator(Punctuator::Ampersand) {
+                break;
+            }
+
+            self.next();
+        }
+
+        Ok(interfaces)
+    }
+
+    fn parse_fields(&mut self) -> Result<Vec<FieldDefinition>, Diagnostic> {
+        self.expect_next(LexicalTokenType::Punctuator(Punctuator::LeftBrace))?;
+
+        let mut fields = Vec::new();
+
+        loop {
+            let token = self.peek_safe();
+
+            if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightBrace) {
+                self.next();
+                break;
+            }
+
+            let field = self.parse_field_definition()?;
+            fields.push(field);
+        }
+
+        Ok(fields)
+    }
+
+    fn parse_field_definition(&mut self) -> Result<FieldDefinition, Diagnostic> {
+        let start_position = self.get_current_position().clone();
+
+        let description = self.parse_description();
+        let name = self.parse_name()?;
+        let arguments = self.parse_field_arguments()?;
+        self.expect_next(LexicalTokenType::Punctuator(Punctuator::Colon))?;
+        let field_type = self.parse_type()?;
+        let directives = self.parse_directives()?;
+
+        Ok(FieldDefinition {
+            description,
+            name,
+            arguments,
+            field_type,
+            directives,
+            position: Range::new(start_position.start, self.get_current_position().end),
+        })
+    }
+
+    fn parse_field_arguments(&mut self) -> Result<Vec<InputValueDefinition>, Diagnostic> {
+        let token = self.peek_safe();
+        let mut arguments = Vec::new();
+
+        if token.token_type != LexicalTokenType::Punctuator(Punctuator::LeftParenthesis) {
+            return Ok(arguments);
+        }
+
+        self.next();
+
+        loop {
+            let token = self.peek_safe();
+
+            if token.token_type == LexicalTokenType::Punctuator(Punctuator::RightParenthesis) {
+                self.next();
+                break;
+            }
+
+            let argument = self.parse_input_value_definition()?;
+            arguments.push(argument);
+        }
+
+        Ok(arguments)
+    }
+
+    fn parse_input_value_definition(&mut self) -> Result<InputValueDefinition, Diagnostic> {
+        let start_position = self.get_current_position().clone();
+
+        let description = self.parse_description();
+        let name = self.parse_name()?;
+        self.expect_next(LexicalTokenType::Punctuator(Punctuator::Colon))?;
+        let input_type = self.parse_type()?;
+        let default_value = self.parse_default_value()?;
+        let directives = self.parse_directives()?;
+
+        Ok(InputValueDefinition {
+            description,
+            name,
+            input_type,
+            default_value,
+            directives,
+            position: Range::new(start_position.start, self.get_current_position().end),
+        })
+    }
+
+    fn parse_default_value(&mut self) -> Result<Option<Value>, Diagnostic> {
+        let token = self.peek_safe();
+
+        if token.token_type != LexicalTokenType::Punctuator(Punctuator::EqualSign) {
+            return Ok(None);
+        }
+
+        self.next();
+
+        Ok(Some(self.parse_value()?))
+    }
 }
 
 #[cfg(test)]
@@ -1040,7 +1203,8 @@ mod tests {
     fn it_can_parse_scalar_type_definitions() {
         let source = r#"
             scalar Date
-            scalar Time
+            scalar Time @tz(offset: 0)
+            "This is a description"
             scalar DateTime
         "#;
 
@@ -1054,4 +1218,39 @@ mod tests {
             _ => panic!("Expected ScalarTypeDefinition"),
         }
     }
+
+    #[test]
+    fn it_errs_for_operations_with_description() {
+        let source = r#"
+            "This is a description"
+            query {
+                test
+            }"#;
+
+        let document = parse(source.to_string());
+        assert!(document.is_err());
+    }
+
+    // #[test]
+    // fn it_can_parse_object_types() {
+    //     let source = r#"
+    //         type User {
+    //             id: ID!
+    //             name: String
+    //             age: Int
+    //             friends: [User]
+    //         }
+    //     "#;
+    //
+    //     let document = parse(source.to_string());
+    //     let document = document.unwrap();
+    //
+    //     match document.definitions.get(0) {
+    //         Some(Definition::ObjectTypeDefinition(object_type_definition)) => {
+    //             assert_eq!(object_type_definition.name.value, "User");
+    //             assert_eq!(object_type_definition.fields.len(), 4);
+    //         }
+    //         _ => panic!("Expected ObjectTypeDefinition"),
+    //     }
+    // }
 }

@@ -1,6 +1,4 @@
-use std::fmt::Display;
-
-use crate::lsp_types::{Position, Range};
+use crate::lsp_types::Range;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Document {
@@ -14,11 +12,42 @@ pub enum Definition {
     FragmentDefinition(FragmentDefinition),
     SchemaDefinition(SchemaDefinition),
     ScalarTypeDefinition(ScalarTypeDefinition),
+    ObjectTypeDefinition(ObjectTypeDefinition),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectTypeDefinition {
+    pub description: Option<StringValue>,
+    pub name: Name,
+    pub interfaces: Vec<NamedType>,
+    pub directives: Vec<Directive>,
+    pub fields: Vec<FieldDefinition>,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldDefinition {
+    pub description: Option<StringValue>,
+    pub name: Name,
+    pub arguments: Vec<InputValueDefinition>,
+    pub field_type: Type,
+    pub directives: Vec<Directive>,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InputValueDefinition {
+    pub description: Option<StringValue>,
+    pub name: Name,
+    pub input_type: Type,
+    pub default_value: Option<Value>,
+    pub directives: Vec<Directive>,
+    pub position: Range,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScalarTypeDefinition {
-    pub description: Option<String>,
+    pub description: Option<StringValue>,
     pub name: Name,
     pub directives: Vec<Directive>,
     pub position: Range,
@@ -33,7 +62,7 @@ pub struct RootOperationTypeDefinition {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SchemaDefinition {
-    pub description: Option<String>,
+    pub description: Option<StringValue>,
     pub operation_types: Vec<RootOperationTypeDefinition>,
     pub directives: Vec<Directive>,
     pub position: Range,
