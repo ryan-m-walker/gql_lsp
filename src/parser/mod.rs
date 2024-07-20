@@ -1,4 +1,4 @@
-use crate::ast_types::{
+use crate::parser::types::{
     Argument, BooleanValue, Definition, Directive, Document, EnumValue, Field, FloatValue,
     FragmentDefinition, FragmentSpread, InlineFragment, IntValue, ListType, ListValue, Name,
     NamedType, NonNullType, NullValue, ObjectField, ObjectValue, OperationDefinition,
@@ -7,8 +7,10 @@ use crate::ast_types::{
 };
 use crate::helpers::is_valid_name;
 use crate::lexer::lex;
-use crate::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
-use crate::tokens::{LexicalToken, LexicalTokenType, Punctuator};
+use crate::lsp::types::{Diagnostic, DiagnosticSeverity, Position, Range};
+use crate::lexer::types::{LexicalToken, LexicalTokenType, Punctuator};
+
+pub mod types;
 
 pub fn parse(source: String) -> Result<Document, Diagnostic> {
     let tokens = lex(source)?;

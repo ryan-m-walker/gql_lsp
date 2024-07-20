@@ -1,4 +1,4 @@
-use crate::lsp_types::{Position, Range};
+use crate::lsp::types::Range;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Punctuator {

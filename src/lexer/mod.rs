@@ -1,7 +1,9 @@
 use crate::constants::{BOM, CARRIAGE_RETURN, NEW_LINE, SPACE, TAB};
 use crate::helpers::is_line_terminator;
-use crate::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
-use crate::tokens::{char_to_punctuator, LexicalToken, LexicalTokenType, Punctuator};
+use crate::lsp::types::{Diagnostic, DiagnosticSeverity, Position, Range};
+use crate::lexer::types::{char_to_punctuator, LexicalToken, LexicalTokenType, Punctuator};
+
+pub mod types;
 
 pub fn lex(source: String) -> Result<Vec<LexicalToken>, Diagnostic> {
     let mut lexer = Lexer::new(source);
@@ -295,10 +297,6 @@ impl Lexer {
 
     fn peek(&self) -> Option<char> {
         self.source.chars().nth(self.ptr)
-    }
-
-    fn peek_at(&self, n: usize) -> Option<char> {
-        self.source.chars().nth(self.ptr + n)
     }
 
     fn expect_next(&mut self, expected: char) -> Result<char, Diagnostic> {

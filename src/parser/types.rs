@@ -1,4 +1,4 @@
-use crate::lsp_types::Range;
+use crate::lsp::types::Range;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Document {
