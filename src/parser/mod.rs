@@ -1,16 +1,19 @@
-use crate::parser::types::{
-    Argument, BooleanValue, Definition, Directive, Document, EnumValue, Field, FloatValue,
-    FragmentDefinition, FragmentSpread, InlineFragment, IntValue, ListType, ListValue, Name,
-    NamedType, NonNullType, NullValue, ObjectField, ObjectValue, OperationDefinition,
-    OperationType, RootOperationTypeDefinition, ScalarTypeDefinition, SchemaDefinition, Selection,
-    SelectionSet, StringValue, Type, Value, Variable, VariableDefinition, ObjectTypeDefinition, FieldDefinition, InputValueDefinition,
-};
 use crate::helpers::is_valid_name;
 use crate::lexer::lex;
-use crate::lsp::types::{Diagnostic, DiagnosticSeverity, Position, Range};
 use crate::lexer::types::{LexicalToken, LexicalTokenType, Punctuator};
+use crate::lsp::types::{Diagnostic, DiagnosticSeverity, Position, Range};
+use crate::parser::types::{
+    Argument, BooleanValue, Definition, Directive, Document, EnumValue, Field, FieldDefinition,
+    FloatValue, FragmentDefinition, FragmentSpread, InlineFragment, InputValueDefinition, IntValue,
+    ListType, ListValue, Name, NamedType, NonNullType, NullValue, ObjectField,
+    ObjectTypeDefinition, ObjectValue, OperationDefinition, OperationType,
+    RootOperationTypeDefinition, ScalarTypeDefinition, SchemaDefinition, Selection, SelectionSet,
+    StringValue, Type, Value, Variable, VariableDefinition,
+};
 
 pub mod types;
+
+mod tests;
 
 pub fn parse(source: String) -> Result<Document, Diagnostic> {
     let tokens = lex(source)?;
@@ -58,7 +61,7 @@ impl Parser {
 
             if token.token_type == LexicalTokenType::Punctuator(Punctuator::LeftBrace) {
                 definitions.push(Definition::OperationDefinition(
-                    self.parse_operation_definition(OperationType::Query, true)?
+                    self.parse_operation_definition(OperationType::Query, true)?,
                 ));
                 continue;
             }
@@ -66,7 +69,7 @@ impl Parser {
             if let LexicalTokenType::Name(name) = &token.token_type {
                 if let Some(operation_type) = OperationType::parse(name) {
                     definitions.push(Definition::OperationDefinition(
-                        self.parse_operation_definition(operation_type, false)?
+                        self.parse_operation_definition(operation_type, false)?,
                     ));
                     continue;
                 }
@@ -74,7 +77,7 @@ impl Parser {
 
             if token.token_type == LexicalTokenType::Name(String::from("fragment")) {
                 definitions.push(Definition::FragmentDefinition(
-                    self.parse_fragment_definition()?
+                    self.parse_fragment_definition()?,
                 ));
                 continue;
             }
@@ -86,21 +89,21 @@ impl Parser {
 
             if token.token_type == LexicalTokenType::Name(String::from("schema")) {
                 definitions.push(Definition::SchemaDefinition(
-                    self.parse_schema_definition(description)?
+                    self.parse_schema_definition(description)?,
                 ));
                 continue;
             }
 
             if token.token_type == LexicalTokenType::Name(String::from("scalar")) {
                 definitions.push(Definition::ScalarTypeDefinition(
-                    self.parse_scalar_type_definition(description)?
+                    self.parse_scalar_type_definition(description)?,
                 ));
                 continue;
             }
 
             if token.token_type == LexicalTokenType::Name(String::from("type")) {
                 definitions.push(Definition::ObjectTypeDefinition(
-                    self.parse_object_type_definition(description)?
+                    self.parse_object_type_definition(description)?,
                 ));
                 continue;
             }
@@ -129,7 +132,10 @@ impl Parser {
         }
     }
 
-    fn parse_scalar_type_definition(&mut self, description: Option<StringValue>) -> Result<ScalarTypeDefinition, Diagnostic> {
+    fn parse_scalar_type_definition(
+        &mut self,
+        description: Option<StringValue>,
+    ) -> Result<ScalarTypeDefinition, Diagnostic> {
         let start_position = self.get_current_position();
 
         self.expect_next(LexicalTokenType::Name(String::from("scalar")))?;
@@ -144,7 +150,10 @@ impl Parser {
         })
     }
 
-    fn parse_schema_definition(&mut self, description: Option<StringValue>) -> Result<SchemaDefinition, Diagnostic> {
+    fn parse_schema_definition(
+        &mut self,
+        description: Option<StringValue>,
+    ) -> Result<SchemaDefinition, Diagnostic> {
         let start_position = self.get_current_position();
 
         self.expect_next(LexicalTokenType::Name(String::from("schema")))?;
@@ -804,7 +813,10 @@ impl Parser {
         }
     }
 
-    fn parse_object_type_definition(&mut self, description: Option<StringValue>) -> Result<ObjectTypeDefinition, Diagnostic> {
+    fn parse_object_type_definition(
+        &mut self,
+        description: Option<StringValue>,
+    ) -> Result<ObjectTypeDefinition, Diagnostic> {
         let start_position = self.get_current_position().clone();
 
         self.expect_next(LexicalTokenType::Name(String::from("type")))?;
@@ -947,312 +959,3 @@ impl Parser {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_parses_unnamed_queries() {
-        let source = r#"
-            query {
-                test
-            }"#;
-
-        let document = parse(source.to_string()).unwrap();
-
-        match document.definitions.get(0) {
-            Some(Definition::OperationDefinition(operation_definition)) => {
-                assert_eq!(operation_definition.operation, OperationType::Query);
-                assert_eq!(operation_definition.name, None);
-                assert_eq!(operation_definition.variable_definitions.len(), 0);
-                assert_eq!(operation_definition.directives.len(), 0);
-                assert_eq!(operation_definition.anonymous, false);
-                assert_eq!(operation_definition.selection_set.selections.len(), 1);
-            }
-            _ => panic!("Expected OperationDefinition"),
-        }
-    }
-
-    #[test]
-    fn it_parses_named_queries() {
-        let source = r#"
-            query Test {
-                test
-            }"#;
-
-        let document = parse(source.to_string()).unwrap();
-
-        match document.definitions.get(0) {
-            Some(Definition::OperationDefinition(operation_definition)) => {
-                if let Some(name) = &operation_definition.name {
-                    assert_eq!(name.value, "Test");
-                } else {
-                    panic!("Expected name");
-                }
-            }
-            _ => panic!("Expected OperationDefinition"),
-        }
-    }
-
-    #[test]
-    fn it_parses_anonymous_queries() {
-        let source = r#"
-            {
-                test
-            }"#;
-
-        let document = parse(source.to_string()).unwrap();
-
-        match document.definitions.get(0) {
-            Some(Definition::OperationDefinition(operation_definition)) => {
-                assert_eq!(operation_definition.operation, OperationType::Query);
-                assert_eq!(operation_definition.name, None);
-                assert_eq!(operation_definition.anonymous, true);
-            }
-            _ => panic!("Expected OperationDefinition"),
-        }
-    }
-
-    #[test]
-    fn it_parses_queries_with_variables() {
-        let source = r#"
-            query Test($id: ID!, $name: String) {
-                test(id: $id, name: $name)
-            }"#;
-
-        let document = parse(source.to_string()).unwrap();
-
-        match document.definitions.get(0) {
-            Some(Definition::OperationDefinition(operation_definition)) => {
-                assert_eq!(operation_definition.variable_definitions.len(), 2);
-
-                let var_1 = operation_definition.variable_definitions.get(0).unwrap();
-                assert_eq!(var_1.variable.name.value, "id");
-                // TODO assert values
-
-                let var_2 = operation_definition.variable_definitions.get(1).unwrap();
-                assert_eq!(var_2.variable.name.value, "name");
-                // TODO assert values
-            }
-            _ => panic!("Expected OperationDefinition"),
-        }
-    }
-
-    #[test]
-    fn it_successfully_parses_a_complex_query() {
-        let source = r#"
-            query Test($id: ID!, $name: String) @foo @bar(param: "value") {
-                test(id: $id, name: $name) {
-                    id
-                    name
-                    age
-                    friends {
-                        id
-                        name
-                    }
-
-                    ... on User {
-                        email
-                    }
-
-                    ... UserFields @test_directive
-                }
-            }"#;
-
-        let document = parse(source.to_string());
-        assert!(document.is_ok());
-    }
-
-    #[test]
-    fn it_parses_fragment_definitions() {
-        let source = r#"
-            fragment UserFields on User {
-                id
-                name
-                age
-                friends {
-                    id
-                    name
-                }
-            }"#;
-
-        let document = parse(source.to_string()).unwrap();
-
-        match document.definitions.get(0) {
-            Some(Definition::FragmentDefinition(fragment_definition)) => {
-                assert_eq!(fragment_definition.name.value, "UserFields");
-                assert_eq!(fragment_definition.type_condition.name.value, "User");
-                assert_eq!(fragment_definition.directives.len(), 0);
-                assert_eq!(fragment_definition.selection_set.selections.len(), 4);
-            }
-            _ => panic!("Expected FragmentDefinition"),
-        }
-    }
-
-    #[test]
-    fn it_can_parse_fragment_spreads() {
-        let source = r#"
-            {
-                ...TestFields
-                ...TestDirective @test
-            }"#;
-
-        let document = parse(source.to_string()).unwrap();
-
-        match document.definitions.get(0) {
-            Some(Definition::OperationDefinition(operation_definition)) => {
-                let selection_set = &operation_definition.selection_set.selections;
-                let fragment_spread_1 = selection_set.get(0).unwrap();
-                let fragment_spread_2 = selection_set.get(1).unwrap();
-
-                match fragment_spread_1 {
-                    Selection::FragmentSpread(fragment_spread) => {
-                        assert_eq!(fragment_spread.name.value, "TestFields");
-                        assert_eq!(fragment_spread.directives.len(), 0);
-                    }
-                    _ => panic!("Expected FragmentSpread"),
-                }
-
-                match fragment_spread_2 {
-                    Selection::FragmentSpread(fragment_spread) => {
-                        assert_eq!(fragment_spread.name.value, "TestDirective");
-                        assert_eq!(fragment_spread.directives.len(), 1);
-                    }
-                    _ => panic!("Expected FragmentSpread"),
-                }
-            }
-            _ => panic!("Expected OperationDefinition"),
-        }
-    }
-
-    #[test]
-    fn it_can_parse_inline_fragments() {
-        let source = r#"
-            {
-                ... on User {
-                    id
-                    name
-                }
-            }"#;
-
-        let document = parse(source.to_string()).unwrap();
-
-        match document.definitions.get(0) {
-            Some(Definition::OperationDefinition(operation_definition)) => {
-                let selection_set = &operation_definition.selection_set.selections;
-                let inline_fragment = selection_set.get(0).unwrap();
-
-                match inline_fragment {
-                    Selection::InlineFragment(inline_fragment) => {
-                        assert_eq!(
-                            inline_fragment.type_condition.as_ref().unwrap().name.value,
-                            "User"
-                        );
-                        assert_eq!(inline_fragment.directives.len(), 0);
-                        assert_eq!(inline_fragment.selection_set.selections.len(), 2);
-                    }
-                    _ => panic!("Expected InlineFragment"),
-                }
-            }
-            _ => panic!("Expected OperationDefinition"),
-        }
-    }
-
-    #[test]
-    fn it_can_parse_schema_definitions() {
-        let source = r#"
-            schema {
-                query: Query
-                mutation: Mutation
-                subscription: Subscription
-            }"#;
-
-        let document = parse(source.to_string()).unwrap();
-
-        match document.definitions.get(0) {
-            Some(Definition::SchemaDefinition(schema_definition)) => {
-                let query = schema_definition.operation_types.get(0).unwrap();
-                assert_eq!(query.operation_type, OperationType::Query);
-                assert_eq!(query.named_type.name.value, "Query");
-
-                let mutation = schema_definition.operation_types.get(1).unwrap();
-                assert_eq!(mutation.operation_type, OperationType::Mutation);
-                assert_eq!(mutation.named_type.name.value, "Mutation");
-
-                let subscription = schema_definition.operation_types.get(2).unwrap();
-                assert_eq!(subscription.operation_type, OperationType::Subscription);
-                assert_eq!(subscription.named_type.name.value, "Subscription");
-            }
-            _ => panic!("Expected SchemaDefinition"),
-        }
-    }
-
-    #[test]
-    fn it_errors_for_invalid_schema_definitions() {
-        let source = r#"
-            schema {
-                query: Query
-                mutation: Mutation
-                subscription: Subscription
-                foo: Foo
-            }"#;
-
-        let document = parse(source.to_string());
-        assert!(document.is_err());
-    }
-
-    #[test]
-    fn it_can_parse_scalar_type_definitions() {
-        let source = r#"
-            scalar Date
-            scalar Time @tz(offset: 0)
-            "This is a description"
-            scalar DateTime
-        "#;
-
-        let document = parse(source.to_string());
-        let document = document.unwrap();
-
-        match document.definitions.get(0) {
-            Some(Definition::ScalarTypeDefinition(scalar_type_definition)) => {
-                assert_eq!(scalar_type_definition.name.value, "Date");
-            }
-            _ => panic!("Expected ScalarTypeDefinition"),
-        }
-    }
-
-    #[test]
-    fn it_errs_for_operations_with_description() {
-        let source = r#"
-            "This is a description"
-            query {
-                test
-            }"#;
-
-        let document = parse(source.to_string());
-        assert!(document.is_err());
-    }
-
-    // #[test]
-    // fn it_can_parse_object_types() {
-    //     let source = r#"
-    //         type User {
-    //             id: ID!
-    //             name: String
-    //             age: Int
-    //             friends: [User]
-    //         }
-    //     "#;
-    //
-    //     let document = parse(source.to_string());
-    //     let document = document.unwrap();
-    //
-    //     match document.definitions.get(0) {
-    //         Some(Definition::ObjectTypeDefinition(object_type_definition)) => {
-    //             assert_eq!(object_type_definition.name.value, "User");
-    //             assert_eq!(object_type_definition.fields.len(), 4);
-    //         }
-    //         _ => panic!("Expected ObjectTypeDefinition"),
-    //     }
-    // }
-}

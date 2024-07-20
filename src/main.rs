@@ -5,7 +5,6 @@ use parser::parse;
 mod constants;
 mod errors;
 mod helpers;
-mod json;
 mod lexer;
 mod lsp;
 mod parser;
