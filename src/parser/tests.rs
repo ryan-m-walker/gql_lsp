@@ -284,25 +284,88 @@ fn it_errs_for_operations_with_description() {
     assert!(document.is_err());
 }
 
-// #[test]
-// fn it_can_parse_object_types() {
-//     let source = r#"
-//         type User {
-//             id: ID!
-//             name: String
-//             age: Int
-//             friends: [User]
-//         }
-//     "#;
-//
-//     let document = parse(source.to_string());
-//     let document = document.unwrap();
-//
-//     match document.definitions.get(0) {
-//         Some(Definition::ObjectTypeDefinition(object_type_definition)) => {
-//             assert_eq!(object_type_definition.name.value, "User");
-//             assert_eq!(object_type_definition.fields.len(), 4);
-//         }
-//         _ => panic!("Expected ObjectTypeDefinition"),
-//     }
-// }
+#[test]
+fn it_can_parse_object_types() {
+    let source = r#"
+        type User {
+            id: ID!
+            name: String
+            age: Int
+            friends: [User]
+        }
+    "#;
+
+    let document = parse(source.to_string());
+    let document = document.unwrap();
+
+    match document.definitions.get(0) {
+        Some(Definition::ObjectTypeDefinition(object_type_definition)) => {
+            assert_eq!(object_type_definition.name.value, "User");
+            assert_eq!(object_type_definition.fields.len(), 4);
+        }
+        _ => panic!("Expected ObjectTypeDefinition"),
+    }
+}
+
+#[test]
+fn it_can_parse_interface_types() {
+    let source = r#"
+        interface User {
+            id: ID!
+            name: String
+            age: Int
+            friends: [User]
+        }
+    "#;
+
+    let document = parse(source.to_string());
+    let document = document.unwrap();
+
+    match document.definitions.get(0) {
+        Some(Definition::InterfaceTypeDefinition(interface_type_definition)) => {
+            assert_eq!(interface_type_definition.name.value, "User");
+            assert_eq!(interface_type_definition.fields.len(), 4);
+        }
+        _ => panic!("Expected InterfaceTypeDefinition"),
+    }
+}
+
+#[test]
+fn it_can_parse_union_types() {
+    let source = r#"
+        union User = Admin | Member
+    "#;
+
+    let document = parse(source.to_string());
+    let document = document.unwrap();
+
+    match document.definitions.get(0) {
+        Some(Definition::UnionTypeDefinition(union_type_definition)) => {
+            assert_eq!(union_type_definition.name.value, "User");
+            assert_eq!(union_type_definition.member_types.len(), 2);
+        }
+        _ => panic!("Expected UnionTypeDefinition"),
+    }
+}
+
+#[test]
+fn it_can_parse_enum_types() {
+    let source = r#"
+        enum Role {
+            ADMIN
+            MEMBER
+            GUEST
+        }
+    "#;
+
+    let document = parse(source.to_string());
+    let document = document.unwrap();
+
+    match document.definitions.get(0) {
+        Some(Definition::EnumTypeDefinition(enum_type_definition)) => {
+            assert_eq!(enum_type_definition.name.value, "Role");
+            assert_eq!(enum_type_definition.values.len(), 3);
+        }
+        _ => panic!("Expected EnumTypeDefinition"),
+    }
+}

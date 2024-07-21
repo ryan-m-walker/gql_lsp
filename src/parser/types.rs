@@ -13,6 +13,55 @@ pub enum Definition {
     SchemaDefinition(SchemaDefinition),
     ScalarTypeDefinition(ScalarTypeDefinition),
     ObjectTypeDefinition(ObjectTypeDefinition),
+    InterfaceTypeDefinition(InterfaceTypeDefinition),
+    UnionTypeDefinition(UnionTypeDefinition),
+    EnumTypeDefinition(EnumTypeDefinition),
+    InputObjectTypeDefinition(InputObjectTypeDefinition),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InputObjectTypeDefinition {
+    pub description: Option<StringValue>,
+    pub name: Name,
+    pub directives: Vec<Directive>,
+    pub fields: Vec<InputValueDefinition>,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumValueDefinition {
+    pub description: Option<StringValue>,
+    pub name: Name,
+    pub directives: Vec<Directive>,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumTypeDefinition {
+    pub description: Option<StringValue>,
+    pub name: Name,
+    pub directives: Vec<Directive>,
+    pub values: Vec<EnumValueDefinition>,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnionTypeDefinition {
+    pub description: Option<StringValue>,
+    pub name: Name,
+    pub directives: Vec<Directive>,
+    pub member_types: Vec<NamedType>,
+    pub position: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InterfaceTypeDefinition {
+    pub description: Option<StringValue>,
+    pub name: Name,
+    pub interfaces: Vec<NamedType>,
+    pub directives: Vec<Directive>,
+    pub fields: Vec<FieldDefinition>,
+    pub position: Range,
 }
 
 #[derive(Debug, Clone, PartialEq)]

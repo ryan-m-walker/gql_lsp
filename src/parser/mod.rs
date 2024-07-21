@@ -11,6 +11,11 @@ use crate::parser::types::{
     StringValue, Type, Value, Variable, VariableDefinition,
 };
 
+use self::types::{
+    EnumTypeDefinition, EnumValueDefinition, InputObjectTypeDefinition, InterfaceTypeDefinition,
+    UnionTypeDefinition,
+};
+
 pub mod types;
 
 mod tests;
@@ -104,6 +109,34 @@ impl Parser {
             if token.token_type == LexicalTokenType::Name(String::from("type")) {
                 definitions.push(Definition::ObjectTypeDefinition(
                     self.parse_object_type_definition(description)?,
+                ));
+                continue;
+            }
+
+            if token.token_type == LexicalTokenType::Name(String::from("interface")) {
+                definitions.push(Definition::InterfaceTypeDefinition(
+                    self.parse_interface_type_definition(description)?,
+                ));
+                continue;
+            }
+
+            if token.token_type == LexicalTokenType::Name(String::from("union")) {
+                definitions.push(Definition::UnionTypeDefinition(
+                    self.parse_union_type_definition(description)?,
+                ));
+                continue;
+            }
+
+            if token.token_type == LexicalTokenType::Name(String::from("enum")) {
+                definitions.push(Definition::EnumTypeDefinition(
+                    self.parse_enum_type_definition(description)?,
+                ));
+                continue;
+            }
+
+            if token.token_type == LexicalTokenType::Name(String::from("input")) {
+                definitions.push(Definition::InputObjectTypeDefinition(
+                    self.parse_input_object_type_definition(description)?,
                 ));
                 continue;
             }
@@ -957,5 +990,147 @@ impl Parser {
 
         Ok(Some(self.parse_value()?))
     }
-}
 
+    fn parse_interface_type_definition(
+        &mut self,
+        description: Option<StringValue>,
+    ) -> Result<InterfaceTypeDefinition, Diagnostic> {
+        let start_position = self.get_current_position().clone();
+
+        self.expect_next(LexicalTokenType::Name(String::from("interface")))?;
+        let name = self.parse_name()?;
+        let interfaces = self.parse_interfaces()?;
+        let directives = self.parse_directives()?;
+        let fields = self.parse_fields()?;
+
+        Ok(InterfaceTypeDefinition {
+            name,
+            description,
+            interfaces,
+            directives,
+            fields,
+            position: Range::new(start_position.start, self.get_current_position().end),
+        })
+    }
+
+    fn parse_union_type_definition(
+        &mut self,
+        description: Option<StringValue>,
+    ) -> Result<UnionTypeDefinition, Diagnostic> {
+        let start_position = self.get_current_position().clone();
+
+        self.expect_next(LexicalTokenType::Name(String::from("union")))?;
+        let name = self.parse_name()?;
+        let directives = self.parse_directives()?;
+        let member_types = self.parse_union_member_types()?;
+
+        Ok(UnionTypeDefinition {
+            name,
+            description,
+            directives,
+            member_types,
+            position: Range::new(start_position.start, self.get_current_position().end),
+        })
+    }
+
+    fn parse_union_member_types(&mut self) -> Result<Vec<NamedType>, Diagnostic> {
+        let mut member_types = Vec::new();
+
+        self.expect_next(LexicalTokenType::Punctuator(Punctuator::EqualSign))?;
+
+        member_types.push(self.parse_named_type()?);
+
+        while let LexicalTokenType::Punctuator(Punctuator::VerticalBar) =
+            self.peek_safe().token_type
+        {
+            self.next();
+            member_types.push(self.parse_named_type()?);
+        }
+
+        Ok(member_types)
+    }
+
+    fn parse_enum_type_definition(
+        &mut self,
+        description: Option<StringValue>,
+    ) -> Result<EnumTypeDefinition, Diagnostic> {
+        let start_position = self.get_current_position().clone();
+
+        self.expect_next(LexicalTokenType::Name(String::from("enum")))?;
+        let name = self.parse_name()?;
+        let directives = self.parse_directives()?;
+        let values = self.parse_enum_values()?;
+
+        Ok(EnumTypeDefinition {
+            name,
+            description,
+            directives,
+            values,
+            position: Range::new(start_position.start, self.get_current_position().end),
+        })
+    }
+
+    fn parse_enum_values(&mut self) -> Result<Vec<EnumValueDefinition>, Diagnostic> {
+        let mut values = Vec::new();
+
+        self.expect_next(LexicalTokenType::Punctuator(Punctuator::LeftBrace))?;
+        values.push(self.parse_enum_value_definition()?);
+
+        while self.peek_safe().token_type != LexicalTokenType::Punctuator(Punctuator::RightBrace) {
+            values.push(self.parse_enum_value_definition()?);
+        }
+
+        self.expect_next(LexicalTokenType::Punctuator(Punctuator::RightBrace))?;
+
+        Ok(values)
+    }
+
+    fn parse_enum_value_definition(&mut self) -> Result<EnumValueDefinition, Diagnostic> {
+        let start_position = self.get_current_position().clone();
+
+        let description = self.parse_description();
+        let name = self.parse_name()?;
+        let directives = self.parse_directives()?;
+
+        Ok(EnumValueDefinition {
+            description,
+            name,
+            directives,
+            position: Range::new(start_position.start, self.get_current_position().end),
+        })
+    }
+
+    fn parse_input_object_type_definition(
+        &mut self,
+        description: Option<StringValue>,
+    ) -> Result<InputObjectTypeDefinition, Diagnostic> {
+        let start_position = self.get_current_position().clone();
+
+        self.expect_next(LexicalTokenType::Name(String::from("input")))?;
+        let name = self.parse_name()?;
+        let directives = self.parse_directives()?;
+        let fields = self.parse_input_fields()?;
+
+        Ok(InputObjectTypeDefinition {
+            name,
+            description,
+            directives,
+            fields,
+            position: Range::new(start_position.start, self.get_current_position().end),
+        })
+    }
+
+    fn parse_input_fields(&mut self) -> Result<Vec<InputValueDefinition>, Diagnostic> {
+        let mut fields = Vec::new();
+
+        self.expect_next(LexicalTokenType::Punctuator(Punctuator::LeftBrace))?;
+
+        while self.peek_safe().token_type != LexicalTokenType::Punctuator(Punctuator::RightBrace) {
+            fields.push(self.parse_input_value_definition()?);
+        }
+
+        self.expect_next(LexicalTokenType::Punctuator(Punctuator::RightBrace))?;
+
+        Ok(fields)
+    }
+}
