@@ -9,7 +9,6 @@ mod tests;
 
 pub fn lex(source: String) -> Result<Vec<LexicalToken>, Diagnostic> {
     let mut lexer = Lexer::new(source);
-    println!("here");
     lexer.lex()
 }
 
@@ -32,8 +31,6 @@ impl Lexer {
 
     pub fn lex(&mut self) -> Result<Vec<LexicalToken>, Diagnostic> {
         let mut tokens: Vec<LexicalToken> = Vec::new();
-
-        dbg!(&self.source);
 
         while let Some(c) = self.peek() {
             match c {

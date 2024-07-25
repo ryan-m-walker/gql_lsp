@@ -17,6 +17,14 @@ pub enum Definition {
     UnionTypeDefinition(UnionTypeDefinition),
     EnumTypeDefinition(EnumTypeDefinition),
     InputObjectTypeDefinition(InputObjectTypeDefinition),
+    SchemaExtension(SchemaExtension),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SchemaExtension {
+    pub operation_types: Vec<RootOperationTypeDefinition>,
+    pub directives: Vec<Directive>,
+    pub position: Range,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -400,4 +408,44 @@ impl TypeSystemDirectiveLocation {
             _ => None,
         }
     }
+}
+
+// maybe this should be a trait?
+pub enum Node {
+    Document(Document),
+    OperationDefinition(OperationDefinition),
+    FragmentDefinition(FragmentDefinition),
+    SchemaDefinition(SchemaDefinition),
+    ScalarTypeDefinition(ScalarTypeDefinition),
+    ObjectTypeDefinition(ObjectTypeDefinition),
+    InterfaceTypeDefinition(InterfaceTypeDefinition),
+    UnionTypeDefinition(UnionTypeDefinition),
+    EnumTypeDefinition(EnumTypeDefinition),
+    InputObjectTypeDefinition(InputObjectTypeDefinition),
+    SchemaExtension(SchemaExtension),
+    RootOperationTypeDefinition(RootOperationTypeDefinition),
+    InputValueDefinition(InputValueDefinition),
+    EnumValueDefinition(EnumValueDefinition),
+    FieldDefinition(FieldDefinition),
+    VariableDefinition(VariableDefinition),
+    NamedType(NamedType),
+    ListType(ListType),
+    NonNullType(NonNullType),
+    Variable(Variable),
+    IntValue(IntValue),
+    FloatValue(FloatValue),
+    StringValue(StringValue),
+    BooleanValue(BooleanValue),
+    NullValue(NullValue),
+    EnumValue(EnumValue),
+    ListValue(ListValue),
+    ObjectValue(ObjectValue),
+    ObjectField(ObjectField),
+    SelectionSet(SelectionSet),
+    Selection(Selection),
+    Field(Field),
+    FragmentSpread(FragmentSpread),
+    InlineFragment(InlineFragment),
+    Directive(Directive),
+    Argument(Argument),
 }
